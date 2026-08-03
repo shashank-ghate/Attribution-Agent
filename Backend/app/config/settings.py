@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -41,14 +42,32 @@ class Settings:
         raw_config = os.getenv("MOENGAGE_BRAND_CONFIG_JSON", "{}")
         try:
             brand_config = json.loads(raw_config)
-        except json.JSONDecodeError as exc:
-            raise RuntimeError("MOENGAGE_BRAND_CONFIG_JSON must be valid JSON") from exc
+        except json.JSONDecodeError:
+            warnings.warn(
+                "Ignoring invalid MOENGAGE_BRAND_CONFIG_JSON; configure valid JSON before using API mode",
+                RuntimeWarning,
+            )
+            brand_config = {}
         if not isinstance(brand_config, dict):
-            raise RuntimeError("MOENGAGE_BRAND_CONFIG_JSON must be a JSON object")
+            warnings.warn(
+                "Ignoring MOENGAGE_BRAND_CONFIG_JSON because it is not a JSON object",
+                RuntimeWarning,
+            )
+            brand_config = {}
         try:
             ui_config = json.loads(os.getenv("MOENGAGE_UI_CONFIG_JSON", "{}"))
-        except json.JSONDecodeError as exc:
-            raise RuntimeError("MOENGAGE_UI_CONFIG_JSON must be valid JSON") from exc
+        except json.JSONDecodeError:
+            warnings.warn(
+                "Ignoring invalid MOENGAGE_UI_CONFIG_JSON",
+                RuntimeWarning,
+            )
+            ui_config = {}
+        if not isinstance(ui_config, dict):
+            warnings.warn(
+                "Ignoring MOENGAGE_UI_CONFIG_JSON because it is not a JSON object",
+                RuntimeWarning,
+            )
+            ui_config = {}
         credential_path = Path(os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "credentials/google-service-account.json"))
         if not credential_path.is_absolute():
             credential_path = BASE_DIR / credential_path
@@ -62,10 +81,12 @@ class Settings:
             if raw_origins.startswith("["):
                 try:
                     parsed_origins = json.loads(raw_origins)
-                except json.JSONDecodeError as exc:
-                    raise RuntimeError("CORS_ORIGINS must be a JSON array or comma-separated URLs") from exc
+                except json.JSONDecodeError:
+                    warnings.warn("Ignoring invalid CORS_ORIGINS JSON", RuntimeWarning)
+                    parsed_origins = []
                 if not isinstance(parsed_origins, list):
-                    raise RuntimeError("CORS_ORIGINS JSON must be an array")
+                    warnings.warn("Ignoring CORS_ORIGINS because it is not a JSON array", RuntimeWarning)
+                    parsed_origins = []
                 cors_origins = [str(origin).strip().rstrip("/") for origin in parsed_origins]
             else:
                 cors_origins = [origin.strip().rstrip("/") for origin in raw_origins.split(",")]

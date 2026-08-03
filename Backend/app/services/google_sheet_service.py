@@ -42,13 +42,17 @@ class GoogleSheetService:
     def __init__(self, credential_file: Path, credential_json: str = ""):
         self.credential_file = credential_file
         self.credential_info = None
+        self.credential_error = None
         if credential_json:
             try:
                 payload = json.loads(credential_json)
                 Credentials.from_service_account_info(payload, scopes=SCOPES)
             except (json.JSONDecodeError, ValueError, TypeError) as exc:
-                raise RuntimeError("GOOGLE_SERVICE_ACCOUNT_JSON is not a valid service-account key") from exc
-            self.credential_info = payload
+                self.credential_error = (
+                    "GOOGLE_SERVICE_ACCOUNT_JSON is not a valid service-account key"
+                )
+            else:
+                self.credential_info = payload
 
     @property
     def configured(self) -> bool:
@@ -89,9 +93,12 @@ class GoogleSheetService:
         temporary.chmod(0o600)
         temporary.replace(self.credential_file)
         self.credential_info = payload
+        self.credential_error = None
         return str(payload["client_email"])
 
     def _client(self):
+        if self.credential_error:
+            raise WorkbookValidationError(self.credential_error)
         if not self.configured:
             raise WorkbookValidationError(
                 f"Google service-account file not found at {self.credential_file}. "

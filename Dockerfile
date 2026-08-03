@@ -6,12 +6,11 @@ RUN npm ci
 COPY Frontend/ ./
 RUN npm run build
 
-FROM mcr.microsoft.com/playwright/python:v1.61.0-noble AS runtime
+FROM python:3.12-slim-bookworm AS runtime
 
 WORKDIR /app/Backend
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+    PYTHONUNBUFFERED=1
 
 COPY Backend/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
