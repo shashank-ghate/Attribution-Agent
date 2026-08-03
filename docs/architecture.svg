@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="800" viewBox="0 0 1400 800">
+  <rect width="1400" height="800" fill="#f6f8fc"/>
+  <style>.t{font-family:Arial,sans-serif;fill:#14213d}.h{font-size:34px;font-weight:700}.b{font-size:22px;font-weight:700}.s{font-size:17px}.box{fill:white;stroke:#cbd5e1;stroke-width:2}.blue{fill:#eef4ff;stroke:#2563eb}.green{fill:#ecfdf5;stroke:#059669}.amber{fill:#fff7ed;stroke:#ea580c}.purple{fill:#f5f3ff;stroke:#7c3aed}.arrow{stroke:#52647c;stroke-width:4;fill:none;marker-end:url(#a)}</style>
+  <defs><marker id="a" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#52647c"/></marker></defs>
+  <text x="70" y="70" class="t h">Attribution Desk — system architecture</text>
+  <rect x="70" y="150" rx="24" ry="24" width="270" height="170" class="box blue"/>
+  <text x="105" y="205" class="t b">React frontend</text><text x="105" y="245" class="t s">Setup, filters, preview</text><text x="105" y="275" class="t s">run / cancel / retry</text><text x="105" y="305" class="t s">live result table</text>
+  <rect x="455" y="150" rx="24" ry="24" width="300" height="170" class="box purple"/>
+  <text x="490" y="205" class="t b">FastAPI backend</text><text x="490" y="245" class="t s">Validation and routes</text><text x="490" y="275" class="t s">in-memory job state</text><text x="490" y="305" class="t s">ReportService orchestration</text>
+  <rect x="900" y="85" rx="24" ry="24" width="390" height="180" class="box green"/>
+  <text x="935" y="140" class="t b">Google Sheets</text><text x="935" y="180" class="t s">Read live A:AF campaign rows</text><text x="935" y="210" class="t s">Write AA:AF metrics immediately</text><text x="935" y="240" class="t s">Service-account access</text>
+  <rect x="900" y="360" rx="24" ry="24" width="390" height="210" class="box amber"/>
+  <text x="935" y="415" class="t b">MoEngage in Playwright</text><text x="935" y="455" class="t s">Persistent Chrome profile</text><text x="935" y="485" class="t s">Brand workspace + saved report</text><text x="935" y="515" class="t s">filters → Apply → AG Grid totals</text><text x="935" y="545" class="t s">Browser lock serializes queries</text>
+  <rect x="455" y="460" rx="24" ry="24" width="300" height="165" class="box"/>
+  <text x="490" y="515" class="t b">Rules &amp; safeguards</text><text x="490" y="555" class="t s">date parsing, normalization</text><text x="490" y="585" class="t s">zero-pair validation, retries</text>
+  <path d="M340 235 L455 235" class="arrow"/><text x="365" y="215" class="t s">/api</text>
+  <path d="M755 205 L900 175" class="arrow"/><text x="790" y="160" class="t s">gspread</text>
+  <path d="M755 270 C820 310 830 400 900 445" class="arrow"/><text x="775" y="365" class="t s">Playwright</text>
+  <path d="M605 320 L605 460" class="arrow"/>
+  <text x="70" y="735" class="t s">Credentials and browser session stay on the local machine; the browser UI is the MoEngage integration surface.</text>
+</svg>

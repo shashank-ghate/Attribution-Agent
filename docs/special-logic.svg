@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900">
+  <rect width="1400" height="900" fill="#f8fafc"/><style>.t{font-family:Arial,sans-serif;fill:#14213d}.h{font-size:34px;font-weight:700}.b{font-size:21px;font-weight:700}.s{font-size:17px}.box{fill:white;stroke:#cbd5e1;stroke-width:2}.purple{fill:#f5f3ff;stroke:#7c3aed}.blue{fill:#eff6ff;stroke:#2563eb}.green{fill:#ecfdf5;stroke:#059669}.arr{stroke:#52647c;stroke-width:3;fill:none;marker-end:url(#a)}</style><defs><marker id="a" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#52647c"/></marker></defs>
+  <text x="65" y="62" class="t h">Special query safety logic</text>
+  <rect x="70" y="125" rx="22" width="585" height="650" class="box purple"/>
+  <text x="110" y="180" class="t b">AGIPL — attribution brand is explicit</text>
+  <text x="110" y="220" class="t s">1. Frontend shows a second brand selector only for AGIPL.</text>
+  <text x="110" y="255" class="t s">2. Query remains in AGIPL_Master_DB.</text>
+  <text x="110" y="290" class="t s">3. Target mapping: Aldo→AL, VS→VS, BBW→BBW,</text>
+  <text x="137" y="320" class="t s">CK→CK, R&amp;B→RB, BHPC→BHPC, Crocs→CROCS, CIS→SP.</text>
+  <rect x="125" y="365" rx="16" width="475" height="85" class="box blue"/><text x="165" y="400" class="t b">Clear all existing Txn_Brand filters</text><text x="205" y="430" class="t s">delete until none remain</text>
+  <rect x="125" y="495" rx="16" width="475" height="85" class="box blue"/><text x="165" y="530" class="t b">Recreate Txn_Brand contains target</text><text x="215" y="560" class="t s">select fresh value</text>
+  <rect x="125" y="625" rx="16" width="475" height="85" class="box green"/><text x="185" y="660" class="t b">Verify retained value before Apply</text><text x="175" y="690" class="t s">mismatch becomes a row failure</text>
+  <path d="M360 450 L360 495" class="arr"/><path d="M360 580 L360 625" class="arr"/>
+  <rect x="745" y="125" rx="22" width="585" height="650" class="box blue"/>
+  <text x="785" y="180" class="t b">CIS and campaign-ID safeguards</text>
+  <text x="785" y="225" class="t s">CIS reuses the AL_IN environment and checks:</text>
+  <rect x="805" y="260" rx="16" width="465" height="100" class="box green"/><text x="855" y="300" class="t b">Sale_Array in last 36 months</text><text x="865" y="335" class="t b">Brand_PM contains SP</text>
+  <text x="785" y="420" class="t s">Every delivered-event query also performs:</text>
+  <rect x="805" y="455" rx="16" width="465" height="90" class="box"/><text x="855" y="492" class="t b">Delete existing Readable Campaign Id</text><text x="885" y="522" class="t s">remove stale React state</text>
+  <rect x="805" y="590" rx="16" width="465" height="90" class="box"/><text x="860" y="627" class="t b">Recreate filter and select current ID</text><text x="885" y="657" class="t s">verify before Apply</text>
+  <path d="M1035 545 L1035 590" class="arr"/>
+</svg>

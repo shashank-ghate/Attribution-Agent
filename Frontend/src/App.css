@@ -1,0 +1,5 @@
+#root { min-height: 100vh; }
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes enter { from { opacity: 0; transform: translateY(6px); } }
+  main > section { animation: enter .35s ease both; }
+}
