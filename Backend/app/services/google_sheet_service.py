@@ -39,18 +39,27 @@ class GoogleSheetService:
         "Campaign ID",
     )
 
-    def __init__(self, credential_file: Path):
+    def __init__(self, credential_file: Path, credential_json: str = ""):
         self.credential_file = credential_file
+        self.credential_info = None
+        if credential_json:
+            try:
+                payload = json.loads(credential_json)
+                Credentials.from_service_account_info(payload, scopes=SCOPES)
+            except (json.JSONDecodeError, ValueError, TypeError) as exc:
+                raise RuntimeError("GOOGLE_SERVICE_ACCOUNT_JSON is not a valid service-account key") from exc
+            self.credential_info = payload
 
     @property
     def configured(self) -> bool:
-        return self.credential_file.exists()
+        return self.credential_info is not None or self.credential_file.exists()
 
     def service_account_email(self) -> str | None:
         if not self.configured:
             return None
         try:
-            return json.loads(self.credential_file.read_text()).get("client_email")
+            payload = self.credential_info or json.loads(self.credential_file.read_text())
+            return payload.get("client_email")
         except (OSError, ValueError):
             return None
 
@@ -79,6 +88,7 @@ class GoogleSheetService:
         temporary.write_bytes(content)
         temporary.chmod(0o600)
         temporary.replace(self.credential_file)
+        self.credential_info = payload
         return str(payload["client_email"])
 
     def _client(self):
@@ -87,7 +97,10 @@ class GoogleSheetService:
                 f"Google service-account file not found at {self.credential_file}. "
                 "Add the JSON key and share the Google Sheet with its client_email."
             )
-        credentials = Credentials.from_service_account_file(self.credential_file, scopes=SCOPES)
+        if self.credential_info is not None:
+            credentials = Credentials.from_service_account_info(self.credential_info, scopes=SCOPES)
+        else:
+            credentials = Credentials.from_service_account_file(self.credential_file, scopes=SCOPES)
         return gspread.authorize(credentials)
 
     @staticmethod

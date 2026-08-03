@@ -91,6 +91,42 @@ npm run dev
 
 Open `http://localhost:5173` and follow the two connection cards.
 
+## 4. Deploy to Railway
+
+Railway deploys this repository as one service. The Docker build compiles the Vite
+frontend and copies it into the FastAPI image, so the browser loads both the UI and
+`/api` from the same public domain. No production `VITE_API_BASE_URL` is required,
+and same-origin requests avoid CORS failures.
+
+In the Railway service settings:
+
+1. Keep **Root Directory** empty (repository root).
+2. Keep **Build Command** and **Start Command** empty. `Dockerfile` supplies both.
+3. Click **Generate Domain** under Public Networking.
+4. Railway reads `railway.toml` and uses `/api/health` as the healthcheck.
+5. Add the values from `railway.env.example` in the **Variables** tab. Seal
+   `GOOGLE_SERVICE_ACCOUNT_JSON` and any variable containing API keys.
+6. Attach a volume at `/data` if browser profiles, uploaded credentials, or output
+   files must survive redeploys. The app automatically uses Railway's volume mount.
+
+The complete Google service-account JSON belongs in the Railway
+`GOOGLE_SERVICE_ACCOUNT_JSON` variable. Do not add it to Git. Share the spreadsheet
+with the `client_email` from that JSON.
+
+### MoEngage production requirement
+
+The local `browser` mode opens a visible Chromium window for Google SSO/MFA. A
+Railway container has no user-visible desktop, so that login flow cannot be completed
+from the deployed web page. Use `MOENGAGE_MODE=api` with valid
+`MOENGAGE_BRAND_CONFIG_JSON` endpoints for production. `MOENGAGE_MODE=mock` can be
+used only to verify the deployment UI. Browser-mode production would require a
+separate remote-browser/VNC login design and persistent storage.
+
+If the frontend is later split into another service/domain, set `VITE_API_BASE_URL`
+on that frontend to the backend's public URL plus `/api`, and set `CORS_ORIGINS` on
+the backend to the exact frontend origin. Vite variables are public and build-time;
+never put credentials in a `VITE_` variable.
+
 ## Verification
 
 ```bash

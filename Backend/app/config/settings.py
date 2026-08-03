@@ -20,6 +20,10 @@ class Settings:
     app_name: str = "MoEngage Attribution Automation"
     api_prefix: str = "/api"
     storage_dir: Path = BASE_DIR / "storage"
+    cors_origins: tuple[str, ...] = (
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    )
     max_upload_mb: int = 30
     moengage_mode: str = "browser"
     moengage_timeout_seconds: float = 30.0
@@ -28,6 +32,7 @@ class Settings:
     moengage_dashboard_url: str = "https://dashboard.moengage.com/"
     moengage_ui_config: dict[str, Any] = field(default_factory=dict)
     google_service_account_file: Path = BASE_DIR / "credentials" / "google-service-account.json"
+    google_service_account_json: str = ""
     google_spreadsheet_url: str = ""
     google_worksheet_name: str = "Mastersheet"
 
@@ -47,7 +52,34 @@ class Settings:
         credential_path = Path(os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "credentials/google-service-account.json"))
         if not credential_path.is_absolute():
             credential_path = BASE_DIR / credential_path
+        storage_path = Path(
+            os.getenv("STORAGE_DIR")
+            or os.getenv("RAILWAY_VOLUME_MOUNT_PATH")
+            or BASE_DIR / "storage"
+        )
+        raw_origins = os.getenv("CORS_ORIGINS", "").strip()
+        if raw_origins:
+            if raw_origins.startswith("["):
+                try:
+                    parsed_origins = json.loads(raw_origins)
+                except json.JSONDecodeError as exc:
+                    raise RuntimeError("CORS_ORIGINS must be a JSON array or comma-separated URLs") from exc
+                if not isinstance(parsed_origins, list):
+                    raise RuntimeError("CORS_ORIGINS JSON must be an array")
+                cors_origins = [str(origin).strip().rstrip("/") for origin in parsed_origins]
+            else:
+                cors_origins = [origin.strip().rstrip("/") for origin in raw_origins.split(",")]
+            cors_origins = [origin for origin in cors_origins if origin]
+        else:
+            cors_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
+        railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip().strip("/")
+        if railway_domain:
+            railway_origin = f"https://{railway_domain}"
+            if railway_origin not in cors_origins:
+                cors_origins.append(railway_origin)
         return cls(
+            storage_dir=storage_path,
+            cors_origins=tuple(cors_origins),
             max_upload_mb=int(os.getenv("MAX_UPLOAD_MB", "30")),
             moengage_mode=os.getenv("MOENGAGE_MODE", "browser").lower(),
             moengage_timeout_seconds=float(os.getenv("MOENGAGE_TIMEOUT_SECONDS", "30")),
@@ -56,6 +88,7 @@ class Settings:
             moengage_dashboard_url=os.getenv("MOENGAGE_DASHBOARD_URL", "https://dashboard.moengage.com/"),
             moengage_ui_config=ui_config,
             google_service_account_file=credential_path,
+            google_service_account_json=os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip(),
             google_spreadsheet_url=os.getenv("GOOGLE_SPREADSHEET_URL", "").strip(),
             google_worksheet_name=os.getenv("GOOGLE_WORKSHEET_NAME", "Mastersheet").strip() or "Mastersheet",
         )

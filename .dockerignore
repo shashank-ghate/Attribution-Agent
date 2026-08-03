@@ -1,0 +1,14 @@
+.git
+.gitignore
+.DS_Store
+.analysis
+**/.env
+**/.env.*
+!**/.env.example
+**/__pycache__
+**/*.py[cod]
+Backend/venv
+Backend/storage
+Backend/credentials/*.json
+Frontend/node_modules
+Frontend/dist

@@ -20,7 +20,10 @@ class ReportService:
         self.settings = settings
         self.excel = ExcelService()
         self.moengage = MoEngageService(settings)
-        self.google = GoogleSheetService(settings.google_service_account_file)
+        self.google = GoogleSheetService(
+            settings.google_service_account_file,
+            settings.google_service_account_json,
+        )
         self.uploads: dict[str, UploadRecord] = {}
         self.sheet_connections: dict[str, SheetConnection] = {}
         self.jobs: dict[str, ReportJob] = {}
