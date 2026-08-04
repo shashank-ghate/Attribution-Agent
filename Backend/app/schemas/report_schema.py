@@ -32,8 +32,8 @@ class StartJobRequest(BaseModel):
     upload_id: str | None = None
     overwrite_existing: bool = True
     row_limit: int | None = Field(default=None, ge=1, le=10000)
-    brands: list[str] = Field(default_factory=list)
-    channels: list[str] = Field(default_factory=list)
+    brands: list[str] = Field(min_length=1, max_length=50)
+    channels: list[str] = Field(min_length=1, max_length=10)
     sent_date: date | None = None
     sent_date_from: date | None = None
     sent_date_to: date | None = None
@@ -41,8 +41,12 @@ class StartJobRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_sent_date_range(self):
+        if self.sent_date and (self.sent_date_from or self.sent_date_to):
+            raise ValueError("Use either sent_date or a sent-date range, not both")
         if bool(self.sent_date_from) != bool(self.sent_date_to):
             raise ValueError("Both sent_date_from and sent_date_to are required")
+        if not self.sent_date and not self.sent_date_from:
+            raise ValueError("Choose a sent date or sent-date range")
         if (
             self.sent_date_from
             and self.sent_date_to
@@ -64,7 +68,7 @@ class StartJobResponse(BaseModel):
 
 class SheetConnectRequest(BaseModel):
     spreadsheet_url: str = Field(min_length=10)
-    worksheet_name: str = "Mastersheet"
+    worksheet_name: str = Field(default="Mastersheet", min_length=1, max_length=100)
 
 
 class SheetConnectionResponse(BaseModel):

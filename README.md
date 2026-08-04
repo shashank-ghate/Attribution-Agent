@@ -1,5 +1,8 @@
 # Attribution Desk — MoEngage to Google Sheets
 
+Operations documentation: [Production SOP](docs/PRODUCTION_SOP.md),
+[FAQ](docs/FAQ.md), and [test matrix](docs/TESTING.md).
+
 This is a live automation service. It does not require Excel uploads.
 
 1. Connect the existing Google Sheet.
@@ -113,14 +116,14 @@ The complete Google service-account JSON belongs in the Railway
 `GOOGLE_SERVICE_ACCOUNT_JSON` variable. Do not add it to Git. Share the spreadsheet
 with the `client_email` from that JSON.
 
-### MoEngage production requirement
+### MoEngage production browser
 
-The local `browser` mode opens a visible Chromium window for Google SSO/MFA. A
-Railway container has no user-visible desktop, so that login flow cannot be completed
-from the deployed web page. Use `MOENGAGE_MODE=api` with valid
-`MOENGAGE_BRAND_CONFIG_JSON` endpoints for production. `MOENGAGE_MODE=mock` can be
-used only to verify the deployment UI. Browser-mode production would require a
-separate remote-browser/VNC login design and persistent storage.
+Production uses the separate `moengage-browser` Railway service in this repository.
+It provides a protected streamed Chromium login window, a persistent `/config`
+profile volume, and a private CDP endpoint used by `Attribution-Agent`. Complete
+Google/MoEngage login only inside that protected browser, verify the session in the
+frontend, and close the streamed browser tab while campaign automation is running.
+See the [Production SOP](docs/PRODUCTION_SOP.md) for setup and recovery.
 
 If the frontend is later split into another service/domain, set `VITE_API_BASE_URL`
 on that frontend to the backend's public URL plus `/api`, and set `CORS_ORIGINS` on
@@ -134,8 +137,10 @@ cd Backend
 PYTHONPATH=. venv/bin/python -m unittest discover -s tests -v
 
 cd ../Frontend
+npm test
 npm run lint
 npm run build
+npm audit --audit-level=high
 ```
 
 Google credentials and the MoEngage browser profile are local secrets and must not

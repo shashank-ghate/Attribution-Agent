@@ -14,7 +14,7 @@ from app.core.dependencies import get_report_service
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     yield
-    await get_report_service().moengage.browser.close()
+    await get_report_service().shutdown()
 
 
 app = FastAPI(

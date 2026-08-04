@@ -11,5 +11,8 @@ Backend/venv/
 .venv/
 Frontend/node_modules/
 Frontend/dist/
+Frontend/coverage/
+.coverage
+Backend/.coverage
 .analysis/
 .DS_Store

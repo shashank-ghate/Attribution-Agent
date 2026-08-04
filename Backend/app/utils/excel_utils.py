@@ -36,6 +36,22 @@ def normalize_campaign_type(value: object) -> str:
     return aliases[campaign_type]
 
 
+def parse_optional_number(value: object) -> float | None:
+    """Parse a formatted sheet number while preserving a truly blank cell."""
+    if value is None or not str(value).strip():
+        return None
+    text = str(value).strip()
+    negative = text.startswith("(") and text.endswith(")")
+    cleaned = re.sub(r"[^0-9.\-]", "", text.replace(",", ""))
+    if not cleaned or cleaned in {"-", ".", "-."}:
+        raise ValueError(f"Invalid numeric metric: {value!r}")
+    try:
+        number = float(cleaned)
+    except ValueError as exc:
+        raise ValueError(f"Invalid numeric metric: {value!r}") from exc
+    return -abs(number) if negative else number
+
+
 def _clean_date_text(value: str) -> str:
     text = value.lower().strip()
     for wrong, right in TYPO_FIXES.items():
@@ -100,6 +116,8 @@ def parse_tracking_range(value: object, campaign_date: date) -> tuple[date, date
                 left_date = left_date.replace(year=right_date.year - 1)
             else:
                 right_date = right_date.replace(year=left_date.year + 1)
+        if left_date > right_date:
+            raise ValueError("Goal date range ends before it starts")
         return left_date, right_date
-    except (ValueError, OverflowError, TypeError):
-        return campaign_date, campaign_date
+    except (ValueError, OverflowError, TypeError) as exc:
+        raise ValueError(f"Could not parse goal date range: {value!r}") from exc

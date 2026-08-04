@@ -156,10 +156,23 @@ function App() {
 
   useEffect(() => {
     if (!job?.job_id || terminalStates.has(job.status)) return undefined
-    const timer = window.setInterval(async () => {
-      try { setJob(await getReport(job.job_id)) } catch (err) { setError(err.message) }
-    }, 900)
-    return () => window.clearInterval(timer)
+    let cancelled = false
+    let timer
+    const poll = async () => {
+      try {
+        const current = await getReport(job.job_id)
+        if (!cancelled) setJob(current)
+      } catch (err) {
+        if (!cancelled) setError(err.message)
+      } finally {
+        if (!cancelled) timer = window.setTimeout(poll, 2000)
+      }
+    }
+    timer = window.setTimeout(poll, 2000)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
   }, [job?.job_id, job?.status])
 
   useEffect(() => {
@@ -249,17 +262,26 @@ function App() {
 
   async function startAutomationBrowser() {
     setError('')
+    if (railwayBrowser) {
+      const loginWindow = window.open(
+        moengage.login_url,
+        '_blank',
+      )
+      if (!loginWindow) {
+        setError('The browser blocked the Railway login window. Allow pop-ups for this site and try again.')
+      } else {
+        loginWindow.opener = null
+      }
+      return
+    }
     setBusy('moengage')
     const password = moengagePassword
     setMoengagePassword('')
-    const loginWindow = railwayBrowser ? window.open('about:blank', '_blank') : null
     try {
       const session = await startMoEngageSession(moengageProfile, password)
       setMoengage(session)
       setMoengageProfile(session.profile_id)
-      if (loginWindow && session.login_url) loginWindow.location.href = session.login_url
     } catch (err) {
-      if (loginWindow) loginWindow.close()
       setError(err.message)
     }
     finally { setBusy('') }

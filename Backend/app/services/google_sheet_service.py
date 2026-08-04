@@ -12,7 +12,12 @@ from google.oauth2.service_account import Credentials
 
 from app.models.report import CampaignMetrics, CampaignRow
 from app.services.excel_service import ExcelService, WorkbookValidationError
-from app.utils.excel_utils import normalize_campaign_type, normalize_channel, parse_tracking_range
+from app.utils.excel_utils import (
+    normalize_campaign_type,
+    normalize_channel,
+    parse_optional_number,
+    parse_tracking_range,
+)
 
 
 SCOPES = [
@@ -43,6 +48,8 @@ class GoogleSheetService:
         self.credential_file = credential_file
         self.credential_info = None
         self.credential_error = None
+        self._client_instance = None
+        self._worksheet_cache = {}
         if credential_json:
             try:
                 payload = json.loads(credential_json)
@@ -94,6 +101,8 @@ class GoogleSheetService:
         temporary.replace(self.credential_file)
         self.credential_info = payload
         self.credential_error = None
+        self._client_instance = None
+        self._worksheet_cache.clear()
         return str(payload["client_email"])
 
     def _client(self):
@@ -104,11 +113,22 @@ class GoogleSheetService:
                 f"Google service-account file not found at {self.credential_file}. "
                 "Add the JSON key and share the Google Sheet with its client_email."
             )
+        if self._client_instance is not None:
+            return self._client_instance
         if self.credential_info is not None:
             credentials = Credentials.from_service_account_info(self.credential_info, scopes=SCOPES)
         else:
             credentials = Credentials.from_service_account_file(self.credential_file, scopes=SCOPES)
-        return gspread.authorize(credentials)
+        self._client_instance = gspread.authorize(credentials)
+        return self._client_instance
+
+    def _worksheet(self, spreadsheet_id: str, worksheet_name: str):
+        key = (spreadsheet_id, worksheet_name)
+        if key not in self._worksheet_cache:
+            self._worksheet_cache[key] = (
+                self._client().open_by_key(spreadsheet_id).worksheet(worksheet_name)
+            )
+        return self._worksheet_cache[key]
 
     @staticmethod
     def spreadsheet_id(value: str) -> str:
@@ -221,9 +241,7 @@ class GoogleSheetService:
                 campaign_type = normalize_campaign_type(cell(row, "Campaign Channel Type"))
                 tracking_goal = cell(row, "Track Goals for")
                 start_date, end_date = parse_tracking_range(tracking_goal, campaign_date)
-                metric_value = lambda header: (
-                    float(cell(row, header).replace(",", "")) if cell(row, header) else None
-                )
+                metric_value = lambda header: parse_optional_number(cell(row, header))
                 campaigns.append(CampaignRow(
                     excel_row=row_number,
                     campaign_date=campaign_date,
@@ -251,7 +269,7 @@ class GoogleSheetService:
 
     async def read_campaigns(self, spreadsheet_id: str, worksheet_name: str):
         def read():
-            sheet = self._client().open_by_key(spreadsheet_id).worksheet(worksheet_name)
+            sheet = self._worksheet(spreadsheet_id, worksheet_name)
             return self._read_worksheet(sheet)
         return await asyncio.to_thread(read)
 
@@ -263,7 +281,7 @@ class GoogleSheetService:
         }
         values = ExcelService.metric_values(row.campaign_type, metrics)
         def write():
-            worksheet = self._client().open_by_key(spreadsheet_id).worksheet(worksheet_name)
+            worksheet = self._worksheet(spreadsheet_id, worksheet_name)
             worksheet.batch_update(
                 [
                     {"range": f"{columns[header]}{row.excel_row}", "values": [[value]]}

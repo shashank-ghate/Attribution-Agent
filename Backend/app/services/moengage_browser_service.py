@@ -254,6 +254,12 @@ class MoEngageBrowserService:
                         self.page = candidate
                         return
                     except (PlaywrightError, asyncio.TimeoutError):
+                        try:
+                            await asyncio.wait_for(
+                                candidate.close(run_before_unload=False), timeout=2
+                            )
+                        except Exception:
+                            pass
                         continue
                 self.page = await self.context.new_page()
                 return
@@ -375,6 +381,13 @@ class MoEngageBrowserService:
                             )
                         )
                         if attempt or not recoverable:
+                            if recoverable and self.remote_cdp_url:
+                                try:
+                                    await self._replace_remote_page()
+                                except Exception:
+                                    logger.exception(
+                                        "Could not prepare a clean browser tab after final failure"
+                                    )
                             if isinstance(exc, PlaywrightError):
                                 raise BrowserAutomationError(
                                     "The MoEngage browser tab crashed while running the query"

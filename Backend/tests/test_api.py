@@ -686,7 +686,13 @@ class ApiTests(unittest.TestCase):
             allow_mock_writes=False,
         )
         with patch("app.api.routes.settings", mock_settings), TestClient(app) as client:
-            response = client.post("/api/jobs", json={"sheet_connection_id": "sheet"})
+            response = client.post("/api/jobs", json={
+                "sheet_connection_id": "sheet",
+                "brands": ["Aldo"],
+                "channels": ["SMS"],
+                "sent_date_from": "2026-08-01",
+                "sent_date_to": "2026-08-02",
+            })
         self.assertEqual(response.status_code, 409)
         self.assertIn("Mock metrics are disabled", response.json()["detail"])
 
@@ -697,7 +703,13 @@ class ApiTests(unittest.TestCase):
         service.jobs[active.id] = active
         try:
             with TestClient(app) as client:
-                response = client.post("/api/jobs", json={"sheet_connection_id": "sheet"})
+                response = client.post("/api/jobs", json={
+                    "sheet_connection_id": "sheet",
+                    "brands": ["Aldo"],
+                    "channels": ["SMS"],
+                    "sent_date_from": "2026-08-01",
+                    "sent_date_to": "2026-08-02",
+                })
             self.assertEqual(response.status_code, 409)
             self.assertIn("already running", response.json()["detail"])
         finally:

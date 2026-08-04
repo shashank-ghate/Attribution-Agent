@@ -11,6 +11,7 @@ from app.models.report import CampaignMetrics, CampaignRow
 from app.utils.excel_utils import (
     normalize_campaign_type,
     normalize_channel,
+    parse_optional_number,
     parse_tracking_range,
 )
 
@@ -155,7 +156,9 @@ class ExcelService:
                 )
                 tracking_goal = input_values["Track Goals for"]
                 start_date, end_date = parse_tracking_range(tracking_goal, campaign_date)
-                metric_value = lambda header: sheet.cell(row_number, headers[header]).value
+                metric_value = lambda header: parse_optional_number(
+                    sheet.cell(row_number, headers[header]).value
+                )
                 rows.append(
                     CampaignRow(
                         excel_row=row_number,

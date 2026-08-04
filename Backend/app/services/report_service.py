@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from dataclasses import replace
 from datetime import date, datetime, timezone
@@ -13,6 +14,11 @@ from app.models.report import JobState, ReportJob, RowResult, SheetConnection, U
 from app.services.excel_service import ExcelService
 from app.services.google_sheet_service import GoogleSheetService, previous_completed_week
 from app.services.moengage_service import MoEngageService
+
+
+logger = logging.getLogger(__name__)
+MAX_JOB_HISTORY = 100
+MAX_SHEET_CONNECTIONS = 10
 
 
 class ReportService:
@@ -28,6 +34,22 @@ class ReportService:
         self.sheet_connections: dict[str, SheetConnection] = {}
         self.jobs: dict[str, ReportJob] = {}
         self.tasks: dict[str, asyncio.Task] = {}
+
+    def _prune_memory(self) -> None:
+        while len(self.sheet_connections) > MAX_SHEET_CONNECTIONS:
+            oldest_connection = next(iter(self.sheet_connections))
+            self.sheet_connections.pop(oldest_connection, None)
+        terminal_jobs = sorted(
+            (
+                job for job in self.jobs.values()
+                if job.state not in {JobState.QUEUED, JobState.PROCESSING}
+            ),
+            key=lambda job: job.created_at,
+        )
+        while len(self.jobs) > MAX_JOB_HISTORY and terminal_jobs:
+            oldest_job = terminal_jobs.pop(0)
+            self.jobs.pop(oldest_job.id, None)
+            self.tasks.pop(oldest_job.id, None)
 
     async def connect_sheet(self, spreadsheet_url: str, worksheet_name: str) -> SheetConnection:
         warning_sent_date_from, warning_sent_date_to = previous_completed_week()
@@ -56,6 +78,7 @@ class ReportService:
             warning_sent_date_to=warning_sent_date_to,
         )
         self.sheet_connections[connection_id] = connection
+        self._prune_memory()
         return connection
 
     def create_sheet_job(
@@ -70,6 +93,7 @@ class ReportService:
         sent_date_to: date | None = None,
         agipl_attribution_brand: str | None = None,
     ) -> ReportJob:
+        self._prune_memory()
         connection = self.sheet_connections.get(connection_id)
         if not connection:
             raise KeyError("Google Sheet connection not found or server was restarted")
@@ -81,6 +105,7 @@ class ReportService:
             agipl_attribution_brand=agipl_attribution_brand,
         )
         self.jobs[job_id] = job
+        self._prune_memory()
         self.tasks[job_id] = asyncio.create_task(
             self._process_sheet(
                 job, connection, overwrite_existing, row_limit, brands, channels,
@@ -111,6 +136,7 @@ class ReportService:
             agipl_attribution_brand=original.agipl_attribution_brand,
         )
         self.jobs[retry_id] = retry
+        self._prune_memory()
         self.tasks[retry_id] = asyncio.create_task(
             self._process_sheet(
                 retry, connection, True, None,
@@ -179,14 +205,21 @@ class ReportService:
                     except Exception as exc:
                         result.status, result.message = "failed", str(exc)
                         job.failed_rows += 1
+                        logger.exception(
+                            "Campaign row %s failed for brand %s",
+                            campaign.excel_row,
+                            campaign.brand,
+                        )
                 job.processed_rows += 1
             if job.state != JobState.CANCELLED:
                 job.state = JobState.COMPLETED
         except Exception as exc:
             job.state, job.error = JobState.FAILED, str(exc)
+            logger.exception("Sheet job %s failed", job.id)
         finally:
             job.current_row = job.current_brand = None
             job.finished_at = datetime.now(timezone.utc)
+            self.tasks.pop(job.id, None)
 
     async def save_upload(self, file: UploadFile) -> UploadRecord:
         suffix = Path(file.filename or "").suffix.lower()
@@ -236,6 +269,7 @@ class ReportService:
         sent_date_to: date | None = None,
         agipl_attribution_brand: str | None = None,
     ) -> ReportJob:
+        self._prune_memory()
         upload = self.uploads.get(upload_id)
         if not upload:
             raise KeyError("Upload not found or server was restarted")
@@ -247,6 +281,7 @@ class ReportService:
             agipl_attribution_brand=agipl_attribution_brand,
         )
         self.jobs[job_id] = job
+        self._prune_memory()
         self.tasks[job_id] = asyncio.create_task(
             self._process(
                 job, upload, overwrite_existing, row_limit, brands, channels,
@@ -316,6 +351,11 @@ class ReportService:
                         result.status = "failed"
                         result.message = str(exc)
                         job.failed_rows += 1
+                        logger.exception(
+                            "Uploaded campaign row %s failed for brand %s",
+                            campaign.excel_row,
+                            campaign.brand,
+                        )
                 job.processed_rows += 1
 
             output = self.settings.storage_dir / "outputs" / f"{job.id}_updated.xlsx"
@@ -326,15 +366,41 @@ class ReportService:
         except Exception as exc:
             job.state = JobState.FAILED
             job.error = str(exc)
+            logger.exception("Upload job %s failed", job.id)
         finally:
             job.current_row = None
             job.current_brand = None
             job.finished_at = datetime.now(timezone.utc)
+            self.tasks.pop(job.id, None)
+
+    async def shutdown(self) -> None:
+        """Cancel background work before the process disconnects from Chromium."""
+        active_ids = [
+            job.id for job in self.jobs.values()
+            if job.state in {JobState.QUEUED, JobState.PROCESSING}
+        ]
+        active_tasks = []
+        for job_id in active_ids:
+            task = self.tasks.get(job_id)
+            self.cancel_job(job_id)
+            if task:
+                active_tasks.append(task)
+        if active_tasks:
+            await asyncio.gather(*active_tasks, return_exceptions=True)
+        await self.moengage.browser.close()
 
     def cancel_job(self, job_id: str) -> ReportJob:
         job = self.get_job(job_id)
         if job.state in {JobState.QUEUED, JobState.PROCESSING}:
             job.state = JobState.CANCELLED
+            if job.results and job.results[-1].status == "processing":
+                job.results[-1].status = "failed"
+                job.results[-1].message = "Run cancelled before this row completed"
+                job.failed_rows += 1
+                job.processed_rows += 1
+            job.current_row = None
+            job.current_brand = None
+            job.finished_at = datetime.now(timezone.utc)
             task = self.tasks.get(job_id)
             if task and not task.done():
                 task.cancel()
