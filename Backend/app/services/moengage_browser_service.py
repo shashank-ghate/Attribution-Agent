@@ -358,6 +358,13 @@ class MoEngageBrowserService:
                     try:
                         return await self._query_recorded_behavior(row, metric)
                     except (BrowserAutomationError, PlaywrightError) as exc:
+                        if isinstance(exc, PlaywrightError):
+                            logger.warning(
+                                "MoEngage browser error for row %s metric %s: %s",
+                                row.excel_row,
+                                metric,
+                                exc,
+                            )
                         recoverable = isinstance(exc, PlaywrightError) or any(
                             text in str(exc).casefold()
                             for text in (
@@ -404,18 +411,37 @@ class MoEngageBrowserService:
                 raise BrowserAutomationError(f"Could not read {metric} result from {text!r}") from exc
 
     async def _replace_remote_page(self) -> None:
-        """Create a clean tab after a Railway Chromium target crashes."""
+        """Dispose of a failed CDP tab and reconnect with a clean automation tab."""
+        failed_page = self.page
         self.page = None
         self.active_workspace = None
-        if not self.context:
-            await self._ensure_browser()
-        else:
+        if failed_page and not failed_page.is_closed():
             try:
-                self.page = await self.context.new_page()
-            except PlaywrightError:
-                self.context = None
-                self.remote_browser = None
-                await self._ensure_browser()
+                await asyncio.wait_for(
+                    failed_page.close(run_before_unload=False),
+                    timeout=5,
+                )
+            except Exception:
+                # A crashed renderer may no longer acknowledge Page.close.
+                pass
+
+        # A target crash can poison the existing CDP transport even when
+        # BrowserContext.new_page() appears to succeed. Disconnect Playwright
+        # and attach again to the persistent Chromium process before retrying.
+        if self.playwright:
+            try:
+                await asyncio.wait_for(self.playwright.stop(), timeout=5)
+            except Exception:
+                pass
+        self.playwright = None
+        self.context = None
+        self.remote_browser = None
+        await self._ensure_browser()
+
+        # Never repurpose a user's visible login/dashboard tab. If reconnecting
+        # selected one, leave it intact and create a dedicated automation tab.
+        if self.page.url != "about:blank":
+            self.page = await self.context.new_page()
         await self.page.goto(self.dashboard_url, wait_until="domcontentloaded")
 
     async def _query_recorded_behavior(self, row: CampaignRow, metric: str) -> float:

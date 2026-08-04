@@ -240,6 +240,43 @@ class MoEngageWorkflowTests(unittest.TestCase):
 
         asyncio.run(scenario())
 
+    def test_remote_recovery_closes_failed_page_and_uses_clean_tab(self):
+        async def scenario():
+            service = MoEngageBrowserService(
+                Path("profile"),
+                "https://dashboard-03.moengage.com/",
+                {},
+                "http://browser.internal:9222",
+            )
+            failed_page = MagicMock()
+            failed_page.is_closed.return_value = False
+            failed_page.close = AsyncMock()
+            service.page = failed_page
+            playwright = MagicMock()
+            playwright.stop = AsyncMock()
+            service.playwright = playwright
+
+            clean_page = MagicMock()
+            clean_page.url = "about:blank"
+            clean_page.goto = AsyncMock()
+
+            async def reconnect(*_args, **_kwargs):
+                service.context = MagicMock()
+                service.context.new_page = AsyncMock()
+                service.page = clean_page
+
+            service._ensure_browser = AsyncMock(side_effect=reconnect)
+            await service._replace_remote_page()
+
+            failed_page.close.assert_awaited_once_with(run_before_unload=False)
+            playwright.stop.assert_awaited_once()
+            clean_page.goto.assert_awaited_once_with(
+                "https://dashboard-03.moengage.com/",
+                wait_until="domcontentloaded",
+            )
+
+        asyncio.run(scenario())
+
     def test_cis_special_filter_summary_is_recognized(self):
         summary = (
             "Txn_Channel exists AND "
