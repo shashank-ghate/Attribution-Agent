@@ -421,9 +421,10 @@ class MoEngageBrowserService:
             )
         plan = build_behavior_query_plan(row, metric)
         page = self.page
-        await self._switch_workspace(page, row.brand)
         query_url = self._query_url_for_brand(row.brand)
-        await self._goto_behavior_report(page, query_url)
+        report_already_open = await self._switch_workspace(page, row.brand)
+        if not report_already_open:
+            await self._goto_behavior_report(page, query_url)
         try:
             await self._wait_for_behavior_report(page)
         except Exception as exc:
@@ -737,7 +738,18 @@ class MoEngageBrowserService:
             raise BrowserAutomationError("MOENGAGE_UI_CONFIG_JSON.query_url is required")
         return query_url
 
-    async def _switch_workspace(self, page: Page, brand: str):
+    @staticmethod
+    def _dashboard_id_from_url(url: str) -> str | None:
+        """Read a MoEngage dashboard ID from either a report or dashboard URL."""
+        parsed = urlparse(url)
+        query_dashboard = (parse_qs(parsed.query).get("did") or [None])[0]
+        if query_dashboard:
+            return query_dashboard
+        dashboard_path = re.search(r"/dashboards/([^/?#]+)", parsed.path, re.I)
+        return dashboard_path.group(1) if dashboard_path else None
+
+    async def _switch_workspace(self, page: Page, brand: str) -> bool:
+        """Select a workspace, returning True when its report was opened directly."""
         mapping = self.ui.get("workspace_map", {})
         target = next((value for key, value in mapping.items() if key.casefold() == brand.casefold()), None)
         if not target:
@@ -747,18 +759,18 @@ class MoEngageBrowserService:
         # some report layouts, and avoids reopening the same workspace for every
         # metric in a same-brand batch.
         target_query_url = self._query_url_for_brand(brand)
-        current_dashboard = (parse_qs(urlparse(page.url).query).get("did") or [None])[0]
-        target_dashboard = (parse_qs(urlparse(target_query_url).query).get("did") or [None])[0]
+        current_dashboard = self._dashboard_id_from_url(page.url)
+        target_dashboard = self._dashboard_id_from_url(target_query_url)
         if target_dashboard and current_dashboard == target_dashboard:
             self.active_workspace = target
-            return
-        if self.active_workspace == target:
-            return
+            return False
+        if self.active_workspace == target and current_dashboard is None:
+            return False
         current = page.get_by_text(target, exact=True)
         for index in range(await current.count()):
             if await current.nth(index).is_visible():
                 self.active_workspace = target
-                return
+                return False
         known = sorted(set(mapping.values()), key=len, reverse=True)
         switcher = None
         selector = self.ui.get("workspace_switcher")
@@ -771,7 +783,28 @@ class MoEngageBrowserService:
                     switcher = candidate.first
                     break
         if switcher is None:
-            raise BrowserAutomationError("Could not find the MoEngage workspace switcher")
+            # MoEngage hides the switcher on several dashboard/report layouts.
+            # The saved brand URL includes the authoritative dashboard ID, so
+            # direct navigation is both faster and more reliable than failing.
+            logger.warning(
+                "Workspace switcher is hidden for brand %s at %s; opening its report directly",
+                brand,
+                page.url,
+            )
+            try:
+                await self._goto_behavior_report(page, target_query_url)
+            except Exception as exc:
+                raise BrowserAutomationError(
+                    f"Could not open the {brand} MoEngage workspace directly "
+                    f"from {page.url!r}"
+                ) from exc
+            if self._dashboard_id_from_url(page.url) != target_dashboard:
+                raise BrowserAutomationError(
+                    f"MoEngage redirected away from the {brand} workspace "
+                    f"to {page.url!r}"
+                )
+            self.active_workspace = target
+            return True
         await switcher.click()
         await self._select_open_option(page, target)
         confirmation = page.get_by_role("button", name=re.compile("Change Workspace", re.I))
@@ -793,6 +826,7 @@ class MoEngageBrowserService:
                 previous_url = current_url
                 stable_checks = 0
         self.active_workspace = target
+        return False
 
     @staticmethod
     async def _ensure_section_open(page: Page, heading: str, marker: str):

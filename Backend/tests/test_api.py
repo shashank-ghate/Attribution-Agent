@@ -193,6 +193,30 @@ class MoEngageWorkflowTests(unittest.TestCase):
         asyncio.run(service._switch_workspace(SimpleNamespace(url=query_url), "BBW"))
         self.assertEqual(service.active_workspace, "BBW_IN")
 
+    def test_workspace_switch_is_skipped_on_matching_dashboard_home(self):
+        query_url = (
+            "https://dashboard-03.moengage.com/v4/analytics/v2/behavior"
+            "?did=aldo-dashboard&chartId=customers"
+        )
+        service = MoEngageBrowserService(
+            Path("profile"),
+            "https://dashboard-03.moengage.com/v4/dashboards/aldo-dashboard",
+            {
+                "query_url_map": {"Aldo": query_url},
+                "workspace_map": {"Aldo": "AL_IN"},
+            },
+        )
+        opened_directly = asyncio.run(
+            service._switch_workspace(
+                SimpleNamespace(
+                    url="https://dashboard-03.moengage.com/v4/dashboards/aldo-dashboard"
+                ),
+                "Aldo",
+            )
+        )
+        self.assertFalse(opened_directly)
+        self.assertEqual(service.active_workspace, "AL_IN")
+
     def test_cis_special_filter_summary_is_recognized(self):
         summary = (
             "Txn_Channel exists AND "
