@@ -27,6 +27,7 @@ class Settings:
     )
     max_upload_mb: int = 30
     moengage_mode: str = "browser"
+    allow_mock_writes: bool = False
     moengage_timeout_seconds: float = 30.0
     moengage_max_retries: int = 2
     moengage_brand_config: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -103,6 +104,7 @@ class Settings:
             cors_origins=tuple(cors_origins),
             max_upload_mb=int(os.getenv("MAX_UPLOAD_MB", "30")),
             moengage_mode=os.getenv("MOENGAGE_MODE", "browser").lower(),
+            allow_mock_writes=os.getenv("ALLOW_MOCK_WRITES", "false").lower() in {"1", "true", "yes"},
             moengage_timeout_seconds=float(os.getenv("MOENGAGE_TIMEOUT_SECONDS", "30")),
             moengage_max_retries=int(os.getenv("MOENGAGE_MAX_RETRIES", "2")),
             moengage_brand_config=brand_config,

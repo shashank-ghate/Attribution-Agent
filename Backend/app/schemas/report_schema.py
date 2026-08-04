@@ -12,6 +12,7 @@ class HealthResponse(BaseModel):
     configured_brands: list[str]
     google_configured: bool = False
     moengage_connected: bool = False
+    mock_writes_enabled: bool = False
 
 
 class UploadResponse(BaseModel):

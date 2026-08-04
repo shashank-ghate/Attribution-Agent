@@ -4,7 +4,8 @@ import unittest
 from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi.testclient import TestClient
 from openpyxl import Workbook, load_workbook
@@ -578,6 +579,16 @@ class ApiTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertIn("google_configured", response.json())
             self.assertIn("moengage_connected", response.json())
+
+    def test_mock_mode_cannot_write_fake_metrics_by_default(self):
+        mock_settings = SimpleNamespace(
+            moengage_mode="mock",
+            allow_mock_writes=False,
+        )
+        with patch("app.api.routes.settings", mock_settings), TestClient(app) as client:
+            response = client.post("/api/jobs", json={"sheet_connection_id": "sheet"})
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("Mock metrics are disabled", response.json()["detail"])
 
     def test_invalid_google_key_is_rejected_without_installing_it(self):
         with TestClient(app) as client:

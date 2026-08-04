@@ -69,6 +69,7 @@ async def health(service: ReportService = Depends(get_report_service)):
         configured_brands=service.moengage.configured_brands(),
         google_configured=service.google.configured,
         moengage_connected=browser_status == "connected",
+        mock_writes_enabled=settings.allow_mock_writes,
     )
 
 
@@ -199,6 +200,25 @@ async def reset_moengage_session(
 
 @router.post("/jobs", response_model=StartJobResponse, status_code=202)
 async def start_job(payload: StartJobRequest, service: ReportService = Depends(get_report_service)):
+    if settings.moengage_mode == "mock" and not settings.allow_mock_writes:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Mock metrics are disabled because they are not real MoEngage results. "
+                "Configure MOENGAGE_MODE=api for production."
+            ),
+        )
+    if settings.moengage_mode == "api":
+        configured = {brand.casefold() for brand in service.moengage.configured_brands()}
+        missing = sorted(
+            {brand for brand in payload.brands if brand.casefold() not in configured},
+            key=str.casefold,
+        )
+        if missing:
+            raise HTTPException(
+                status_code=409,
+                detail="Missing MoEngage API configuration for: " + ", ".join(missing),
+            )
     try:
         if payload.sheet_connection_id:
             job = service.create_sheet_job(
