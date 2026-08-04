@@ -3,11 +3,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import socket
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
+
+import httpx
 
 from playwright.async_api import (
     BrowserContext,
@@ -237,11 +240,12 @@ class MoEngageBrowserService:
             self.playwright = await async_playwright().start()
         if self.remote_cdp_url:
             try:
+                websocket_url = await self._remote_websocket_url()
                 self.remote_browser = await self.playwright.chromium.connect_over_cdp(
-                    self.remote_cdp_url,
+                    websocket_url,
                     timeout=30000,
                 )
-            except PlaywrightError as exc:
+            except (PlaywrightError, httpx.HTTPError, OSError, ValueError) as exc:
                 logger.exception("Could not attach to the Railway Chromium CDP endpoint")
                 raise BrowserAutomationError(
                     "The Railway login browser is starting or unavailable. Wait a moment and try again."
@@ -258,6 +262,35 @@ class MoEngageBrowserService:
             launch_options["channel"] = self.ui["browser_channel"]
         self.context = await self.playwright.chromium.launch_persistent_context(str(self.profile_dir), **launch_options)
         self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
+
+    async def _remote_websocket_url(self) -> str:
+        """Resolve Railway private DNS and return Chromium's reachable CDP WebSocket URL."""
+        parsed = urlparse(self.remote_cdp_url)
+        if parsed.scheme in {"ws", "wss"}:
+            return self.remote_cdp_url
+        if not parsed.hostname:
+            raise ValueError("MOENGAGE_REMOTE_CDP_URL must include a hostname")
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        addresses = await asyncio.to_thread(
+            socket.getaddrinfo,
+            parsed.hostname,
+            port,
+            0,
+            socket.SOCK_STREAM,
+        )
+        address = addresses[0][4][0]
+        ip_host = f"[{address}]" if ":" in address else address
+        ip_netloc = f"{ip_host}:{port}"
+        version_url = urlunparse((parsed.scheme, ip_netloc, "/json/version", "", "", ""))
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(version_url)
+            response.raise_for_status()
+            browser_websocket = response.json().get("webSocketDebuggerUrl")
+        if not browser_websocket:
+            raise ValueError("Chromium did not return a browser WebSocket URL")
+        websocket_path = urlparse(browser_websocket).path
+        websocket_scheme = "wss" if parsed.scheme == "https" else "ws"
+        return urlunparse((websocket_scheme, ip_netloc, websocket_path, "", "", ""))
 
     async def close(self):
         if self.context and not self.remote_cdp_url:
