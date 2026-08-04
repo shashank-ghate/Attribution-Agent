@@ -29,6 +29,7 @@ class Settings:
     moengage_mode: str = "browser"
     allow_mock_writes: bool = False
     moengage_timeout_seconds: float = 30.0
+    moengage_browser_query_timeout_seconds: float = 180.0
     moengage_max_retries: int = 2
     moengage_brand_config: dict[str, dict[str, Any]] = field(default_factory=dict)
     moengage_dashboard_url: str = "https://dashboard.moengage.com/"
@@ -108,6 +109,9 @@ class Settings:
             moengage_mode=os.getenv("MOENGAGE_MODE", "browser").lower(),
             allow_mock_writes=os.getenv("ALLOW_MOCK_WRITES", "false").lower() in {"1", "true", "yes"},
             moengage_timeout_seconds=float(os.getenv("MOENGAGE_TIMEOUT_SECONDS", "30")),
+            moengage_browser_query_timeout_seconds=float(
+                os.getenv("MOENGAGE_BROWSER_QUERY_TIMEOUT_SECONDS", "180")
+            ),
             moengage_max_retries=int(os.getenv("MOENGAGE_MAX_RETRIES", "2")),
             moengage_brand_config=brand_config,
             moengage_dashboard_url=os.getenv("MOENGAGE_DASHBOARD_URL", "https://dashboard.moengage.com/"),

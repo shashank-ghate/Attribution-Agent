@@ -112,16 +112,16 @@ class MoEngageService:
             if row.campaign_type == "Overall":
                 online = replace(row, campaign_type="Online")
                 offline = replace(row, campaign_type="Offline")
-                online_users = await self.browser.query_metric(online, "unique_users")
-                offline_users = await self.browser.query_metric(offline, "unique_users")
-                online_revenue = await self.browser.query_metric(online, "total_revenue")
-                offline_revenue = await self.browser.query_metric(offline, "total_revenue")
+                online_users = await self._browser_query_metric(online, "unique_users")
+                offline_users = await self._browser_query_metric(offline, "unique_users")
+                online_revenue = await self._browser_query_metric(online, "total_revenue")
+                offline_revenue = await self._browser_query_metric(offline, "total_revenue")
                 return self._combine_metrics(
                     self._typed_metrics("Online", online_users, online_revenue),
                     self._typed_metrics("Offline", offline_users, offline_revenue),
                 )
-            unique_users = await self.browser.query_metric(row, "unique_users")
-            total_revenue = await self.browser.query_metric(row, "total_revenue")
+            unique_users = await self._browser_query_metric(row, "unique_users")
+            total_revenue = await self._browser_query_metric(row, "total_revenue")
             return self._typed_metrics(row.campaign_type, unique_users, total_revenue)
         if self.settings.moengage_mode != "api":
             raise MoEngageError(f"Unsupported MOENGAGE_MODE: {self.settings.moengage_mode}")
@@ -143,6 +143,24 @@ class MoEngageService:
             self._query_metric(row, "total_revenue"),
         )
         return self._typed_metrics(row.campaign_type, unique_users, total_revenue)
+
+    async def _browser_query_metric(self, row: CampaignRow, metric: str) -> float:
+        timeout = self.settings.moengage_browser_query_timeout_seconds
+        try:
+            return await asyncio.wait_for(
+                self.browser.query_metric(row, metric),
+                timeout=timeout,
+            )
+        except TimeoutError as exc:
+            try:
+                await asyncio.wait_for(self.browser.recover(), timeout=30)
+            except Exception:
+                # The next metric reconnects to the persistent Railway browser.
+                await self.browser.close()
+            raise MoEngageError(
+                f"MoEngage {metric} query timed out after {int(timeout)} seconds "
+                f"for sheet row {row.excel_row}; the browser tab was reset"
+            ) from exc
 
     @staticmethod
     def _typed_metrics(campaign_type: str, unique_users: float, revenue: float) -> CampaignMetrics:

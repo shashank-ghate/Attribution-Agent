@@ -333,6 +333,16 @@ class MoEngageBrowserService:
         self.active_workspace = None
         self.playwright = None
 
+    async def recover(self) -> None:
+        """Replace an unresponsive automation tab without logging the user out."""
+        async with self.lock:
+            if self.remote_cdp_url:
+                await self._replace_remote_page()
+            else:
+                await self._ensure_browser(headless=True)
+                await self.page.goto(self.dashboard_url, wait_until="domcontentloaded")
+                self.active_workspace = None
+
     async def query_metric(self, row: CampaignRow, metric: str) -> float:
         async with self.lock:
             await self._ensure_browser(headless=True)

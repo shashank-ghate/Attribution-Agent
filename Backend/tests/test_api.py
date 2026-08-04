@@ -217,6 +217,29 @@ class MoEngageWorkflowTests(unittest.TestCase):
         self.assertFalse(opened_directly)
         self.assertEqual(service.active_workspace, "AL_IN")
 
+    def test_browser_query_timeout_resets_tab_and_reports_sheet_row(self):
+        async def scenario():
+            async def slow_query(*_):
+                await asyncio.sleep(60)
+
+            with tempfile.TemporaryDirectory() as folder:
+                settings = Settings(
+                    storage_dir=Path(folder),
+                    moengage_mode="browser",
+                    moengage_browser_query_timeout_seconds=0.01,
+                )
+                service = MoEngageService(settings)
+                service.browser.query_metric = AsyncMock(side_effect=slow_query)
+                service.browser.recover = AsyncMock()
+                with self.assertRaisesRegex(
+                    MoEngageError,
+                    "unique_users query timed out.*sheet row 99",
+                ):
+                    await service.fetch_metrics(campaign_row())
+                service.browser.recover.assert_awaited_once()
+
+        asyncio.run(scenario())
+
     def test_cis_special_filter_summary_is_recognized(self):
         summary = (
             "Txn_Channel exists AND "

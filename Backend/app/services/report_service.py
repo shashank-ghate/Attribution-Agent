@@ -335,6 +335,9 @@ class ReportService:
         job = self.get_job(job_id)
         if job.state in {JobState.QUEUED, JobState.PROCESSING}:
             job.state = JobState.CANCELLED
+            task = self.tasks.get(job_id)
+            if task and not task.done():
+                task.cancel()
         return job
 
     def get_job(self, job_id: str) -> ReportJob:
