@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 
 from playwright.async_api import (
     BrowserContext,
+    Browser,
     Error as PlaywrightError,
     Page,
     Playwright,
@@ -74,11 +75,19 @@ def build_behavior_query_plan(row: CampaignRow, metric: str) -> BehaviorQueryPla
 
 
 class MoEngageBrowserService:
-    def __init__(self, profile_dir: Path, dashboard_url: str, ui_config: dict[str, Any]):
+    def __init__(
+        self,
+        profile_dir: Path,
+        dashboard_url: str,
+        ui_config: dict[str, Any],
+        remote_cdp_url: str = "",
+    ):
         self.profile_dir = profile_dir
         self.dashboard_url = dashboard_url
         self.ui = ui_config
+        self.remote_cdp_url = remote_cdp_url
         self.playwright: Playwright | None = None
+        self.remote_browser: Browser | None = None
         self.context: BrowserContext | None = None
         self.page: Page | None = None
         self.lock = asyncio.Lock()
@@ -222,6 +231,23 @@ class MoEngageBrowserService:
                 self.page = None
         if self.playwright is None:
             self.playwright = await async_playwright().start()
+        if self.remote_cdp_url:
+            try:
+                self.remote_browser = await self.playwright.chromium.connect_over_cdp(
+                    self.remote_cdp_url,
+                    timeout=30000,
+                )
+            except PlaywrightError as exc:
+                raise BrowserAutomationError(
+                    "The Railway login browser is starting or unavailable. Wait a moment and try again."
+                ) from exc
+            self.context = (
+                self.remote_browser.contexts[0]
+                if self.remote_browser.contexts
+                else await self.remote_browser.new_context(viewport={"width": 1440, "height": 960})
+            )
+            self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
+            return
         launch_options = {"headless": headless, "viewport": {"width": 1440, "height": 960}}
         if self.ui.get("browser_channel"):
             launch_options["channel"] = self.ui["browser_channel"]
@@ -229,7 +255,7 @@ class MoEngageBrowserService:
         self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
 
     async def close(self):
-        if self.context:
+        if self.context and not self.remote_cdp_url:
             try:
                 await self.context.close()
             except Exception:
@@ -241,6 +267,7 @@ class MoEngageBrowserService:
                 pass
         self.page = None
         self.context = None
+        self.remote_browser = None
         self.playwright = None
 
     async def query_metric(self, row: CampaignRow, metric: str) -> float:

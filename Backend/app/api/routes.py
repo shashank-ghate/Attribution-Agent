@@ -157,11 +157,12 @@ async def start_moengage_session(
         profile_id = await service.moengage.select_profile(payload.profile_id)
         message = await service.moengage.browser.start_login(
             payload.profile_id,
-            payload.password.get_secret_value(),
+            payload.password.get_secret_value() if payload.password else None,
         )
         return MoEngageSessionResponse(
             status="waiting_for_login", message=message, profile_id=profile_id,
             profiles=service.moengage.available_profiles(),
+            login_url=settings.moengage_browser_login_url or None,
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -173,6 +174,7 @@ async def moengage_session(service: ReportService = Depends(get_report_service))
     return MoEngageSessionResponse(
         status=status, message=message, profile_id=service.moengage.active_profile,
         profiles=service.moengage.available_profiles(),
+        login_url=settings.moengage_browser_login_url or None,
     )
 
 
@@ -193,6 +195,7 @@ async def reset_moengage_session(
             message="A fresh browser profile is open. Choose Continue with Google, then select the required account. " + message,
             profile_id=profile_id,
             profiles=service.moengage.available_profiles(),
+            login_url=settings.moengage_browser_login_url or None,
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -219,6 +222,10 @@ async def start_job(payload: StartJobRequest, service: ReportService = Depends(g
                 status_code=409,
                 detail="Missing MoEngage API configuration for: " + ", ".join(missing),
             )
+    if settings.moengage_mode == "browser":
+        browser_status, browser_message = await service.moengage.browser.status()
+        if browser_status != "connected":
+            raise HTTPException(status_code=409, detail=browser_message)
     try:
         if payload.sheet_connection_id:
             job = service.create_sheet_job(

@@ -17,7 +17,6 @@ import {
 } from './services/reportService'
 
 const terminalStates = new Set(['completed', 'failed', 'cancelled'])
-const moengageDashboardUrl = import.meta.env.VITE_MOENGAGE_DASHBOARD_URL || 'https://dashboard.moengage.com/'
 
 function Icon({ name, className = 'size-5' }) {
   const paths = {
@@ -193,6 +192,7 @@ function App() {
   const matchingRows = filtersComplete && !previewBusy ? campaignPreview?.row_count || 0 : 0
   const selectedMoengageProfile = normalizeMoEngageProfile(moengageProfile)
   const moengageMode = health?.moengage_mode
+  const railwayBrowser = moengageMode === 'browser' && Boolean(moengage.login_url)
   const apiConfigured = moengageMode === 'api' && Boolean(health?.configured_brands?.length)
   const browserConnected = moengageMode === 'browser' && moengage.status === 'connected' && moengage.profile_id === selectedMoengageProfile
   const mockEnabled = moengageMode === 'mock' && health?.mock_writes_enabled
@@ -252,11 +252,16 @@ function App() {
     setBusy('moengage')
     const password = moengagePassword
     setMoengagePassword('')
+    const loginWindow = railwayBrowser ? window.open('about:blank', '_blank') : null
     try {
       const session = await startMoEngageSession(moengageProfile, password)
       setMoengage(session)
       setMoengageProfile(session.profile_id)
-    } catch (err) { setError(err.message) }
+      if (loginWindow && session.login_url) loginWindow.location.href = session.login_url
+    } catch (err) {
+      if (loginWindow) loginWindow.close()
+      setError(err.message)
+    }
     finally { setBusy('') }
   }
 
@@ -363,12 +368,13 @@ function App() {
             <span className="text-xs font-semibold text-slate-300">02</span>
           </div>
           <div className="mt-5 rounded-xl bg-slate-50 p-4">
-            {moengageMode === 'browser' && <div className="mb-3 space-y-3">
+            {moengageMode === 'browser' && !railwayBrowser && <div className="mb-3 space-y-3">
               <div><label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Google email / previously used profile</label><input type="email" list="moengage-profiles" value={moengageProfile === 'default' ? '' : moengageProfile} disabled={Boolean(job) || busy === 'moengage' || busy === 'reset-moengage'} onChange={(event) => { setMoengageProfile(event.target.value); setMoengagePassword('') }} placeholder="Enter a new email or choose a used profile" autoComplete="username" className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-medium text-slate-700 focus:border-blue-500" /><datalist id="moengage-profiles">{(moengage.profiles || []).filter((profile) => profile !== 'default').map((profile) => <option key={profile} value={profile} />)}</datalist></div>
               <div><label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Password — never saved</label><input type="password" value={moengagePassword} disabled={Boolean(job) || busy === 'moengage' || busy === 'reset-moengage'} onChange={(event) => setMoengagePassword(event.target.value)} placeholder="Enter password for this login only" autoComplete="off" className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-medium text-slate-700 focus:border-blue-500" /><p className="mt-1.5 text-[10px] text-slate-400">The Google browser profile and signed-in session can be reused. This password is sent once to the local backend, cleared from the form immediately, and never written to disk. Complete MFA manually if Google asks.</p></div>
             </div>}
-            <p className="text-xs leading-5 text-slate-600">{moengageMode === 'mock' ? (mockEnabled ? 'Mock mode is enabled for local development.' : 'Mock writes are blocked because demo values are not real results.') : moengageMode === 'api' ? (apiConfigured ? `${health.configured_brands.length} brand API configuration(s) ready.` : 'Add the real MOENGAGE_BRAND_CONFIG_JSON Railway variable before running campaigns.') : isMoeReady ? moengage.message : 'Choose a login profile, open the automation browser, and complete Google login. The session is saved only for that profile.'}</p>
-            <div className="mt-3 flex flex-wrap gap-2">{moengageMode === 'browser' && <button onClick={startAutomationBrowser} disabled={busy === 'moengage' || busy === 'reset-moengage' || !moengageProfile.trim() || !moengagePassword || Boolean(job)} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"><Icon name="browser" className="size-4" />{busy === 'moengage' ? 'Signing in…' : 'Login with this profile'}</button>}{moengageMode === 'browser' && <button onClick={verifyAutomationBrowser} disabled={busy === 'verify' || moengage.profile_id !== selectedMoengageProfile} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50"><Icon name="refresh" className="size-4" />Verify login</button>}{moengageMode === 'browser' && <button type="button" onClick={resetAutomationBrowser} disabled={busy === 'reset-moengage' || !moengageProfile.trim() || !moengagePassword || Boolean(job)} className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white px-4 py-2 text-xs font-semibold text-red-600 disabled:opacity-50"><Icon name="close" className="size-4" />{busy === 'reset-moengage' ? 'Resetting…' : 'Clear profile & login'}</button>}{moengageMode === 'browser' && <a href={moengageDashboardUrl} target="_blank" rel="noopener noreferrer" onClick={openMoEngage} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700"><Icon name="link" className="size-4" />Open manually</a>}</div>
+            <p className="text-xs leading-5 text-slate-600">{moengageMode === 'mock' ? (mockEnabled ? 'Mock mode is enabled for local development.' : 'Mock writes are blocked because demo values are not real results.') : moengageMode === 'api' ? (apiConfigured ? `${health.configured_brands.length} brand API configuration(s) ready.` : 'Add the real MOENGAGE_BRAND_CONFIG_JSON Railway variable before running campaigns.') : isMoeReady ? moengage.message : railwayBrowser ? 'Open the private Railway browser, complete Google/MoEngage login, then return here and verify the session. The browser profile persists across deployments.' : 'Choose a login profile, open the automation browser, and complete Google login. The session is saved only for that profile.'}</p>
+            {railwayBrowser && <p className="mt-2 text-[10px] leading-4 text-slate-400">The Railway browser has separate access protection. Enter Google credentials only inside that browser window.</p>}
+            <div className="mt-3 flex flex-wrap gap-2">{moengageMode === 'browser' && <button onClick={startAutomationBrowser} disabled={busy === 'moengage' || busy === 'reset-moengage' || (!railwayBrowser && (!moengageProfile.trim() || !moengagePassword)) || Boolean(job)} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"><Icon name="browser" className="size-4" />{busy === 'moengage' ? 'Opening…' : railwayBrowser ? 'Open Railway login browser' : 'Login with this profile'}</button>}{moengageMode === 'browser' && <button onClick={verifyAutomationBrowser} disabled={busy === 'verify'} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50"><Icon name="refresh" className="size-4" />Verify login</button>}{moengageMode === 'browser' && !railwayBrowser && <button type="button" onClick={resetAutomationBrowser} disabled={busy === 'reset-moengage' || !moengageProfile.trim() || !moengagePassword || Boolean(job)} className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white px-4 py-2 text-xs font-semibold text-red-600 disabled:opacity-50"><Icon name="close" className="size-4" />{busy === 'reset-moengage' ? 'Resetting…' : 'Clear profile & login'}</button>}{moengageMode === 'browser' && !railwayBrowser && <a href="https://dashboard.moengage.com/" target="_blank" rel="noopener noreferrer" onClick={openMoEngage} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700"><Icon name="link" className="size-4" />Open manually</a>}</div>
           </div>
         </div>
       </section>
@@ -469,7 +475,7 @@ function App() {
         </section>
       </> : <LockedWorkflow reason={googleConfig?.configured ? 'Share the sheet with the service-account email above, then click Connect sheet to load the real brands and dates.' : 'Upload the Google service-account key in step 01 to unlock the live brand, sent-date, and channel filters.'} />}
 
-      <footer className="mt-8 flex justify-between border-t border-slate-200 py-5 text-[11px] text-slate-400"><span>Credentials stay on this machine</span><span>Google Sheets ↔ MoEngage</span></footer>
+      <footer className="mt-8 flex justify-between border-t border-slate-200 py-5 text-[11px] text-slate-400"><span>Credentials stay in secured browser sessions</span><span>Google Sheets ↔ MoEngage</span></footer>
     </main>
   </div>
 }

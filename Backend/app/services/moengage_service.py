@@ -39,6 +39,7 @@ class MoEngageService:
             profile_dir,
             self.settings.moengage_dashboard_url,
             self.settings.moengage_ui_config,
+            self.settings.moengage_remote_cdp_url,
         )
 
     @staticmethod
@@ -66,6 +67,10 @@ class MoEngageService:
         return sorted(profiles)
 
     async def select_profile(self, profile_id: str | None) -> str:
+        if self.settings.moengage_remote_cdp_url:
+            # The Railway browser owns one persistent, encrypted web profile.
+            self.active_profile = "railway"
+            return self.active_profile
         normalized = self.normalize_profile_id(profile_id)
         if normalized == self.active_profile:
             return normalized
@@ -77,6 +82,8 @@ class MoEngageService:
     async def reset_profile(self, profile_id: str | None) -> str:
         import shutil
 
+        if self.settings.moengage_remote_cdp_url:
+            raise MoEngageError("Reset the Railway browser profile from Railway, not from this page")
         normalized = await self.select_profile(profile_id)
         await self.browser.close()
         path = self._profile_path(normalized)

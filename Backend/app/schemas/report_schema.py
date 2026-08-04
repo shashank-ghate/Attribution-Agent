@@ -92,11 +92,12 @@ class MoEngageSessionResponse(BaseModel):
     message: str
     profile_id: str = "default"
     profiles: list[str] = Field(default_factory=list)
+    login_url: str | None = None
 
 
 class MoEngageSessionRequest(BaseModel):
     profile_id: str = Field(default="default", min_length=1, max_length=120)
-    password: SecretStr = Field(min_length=1, max_length=512)
+    password: SecretStr | None = Field(default=None, min_length=1, max_length=512)
 
 
 class RowResultResponse(BaseModel):

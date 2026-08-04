@@ -32,6 +32,8 @@ class Settings:
     moengage_max_retries: int = 2
     moengage_brand_config: dict[str, dict[str, Any]] = field(default_factory=dict)
     moengage_dashboard_url: str = "https://dashboard.moengage.com/"
+    moengage_remote_cdp_url: str = ""
+    moengage_browser_login_url: str = ""
     moengage_ui_config: dict[str, Any] = field(default_factory=dict)
     google_service_account_file: Path = BASE_DIR / "credentials" / "google-service-account.json"
     google_service_account_json: str = ""
@@ -109,6 +111,8 @@ class Settings:
             moengage_max_retries=int(os.getenv("MOENGAGE_MAX_RETRIES", "2")),
             moengage_brand_config=brand_config,
             moengage_dashboard_url=os.getenv("MOENGAGE_DASHBOARD_URL", "https://dashboard.moengage.com/"),
+            moengage_remote_cdp_url=os.getenv("MOENGAGE_REMOTE_CDP_URL", "").strip(),
+            moengage_browser_login_url=os.getenv("MOENGAGE_BROWSER_LOGIN_URL", "").strip(),
             moengage_ui_config=ui_config,
             google_service_account_file=credential_path,
             google_service_account_json=os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip(),

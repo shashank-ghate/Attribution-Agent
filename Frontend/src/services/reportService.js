@@ -47,7 +47,7 @@ export async function getCampaignPreview(connectionId, filters) {
 export const getMoEngageSession = async () => (await apiRequest('/moengage/session')).json()
 export const startMoEngageSession = async (profileId, password) => (await apiRequest('/moengage/session/start', {
   method: 'POST', headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ profile_id: profileId || 'default', password }),
+  body: JSON.stringify({ profile_id: profileId || 'default', ...(password ? { password } : {}) }),
 })).json()
 export const resetMoEngageSession = async (profileId, password) => (await apiRequest('/moengage/session/reset', {
   method: 'POST', headers: { 'Content-Type': 'application/json' },
