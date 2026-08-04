@@ -205,6 +205,11 @@ class MoEngageBrowserService:
             return False, False
 
     async def status(self) -> tuple[str, str]:
+        if self.remote_cdp_url:
+            try:
+                await self._ensure_browser()
+            except BrowserAutomationError as exc:
+                return "disconnected", str(exc)
         if (not self.page or self.page.is_closed()) and self.context:
             open_pages = [page for page in self.context.pages if not page.is_closed()]
             if open_pages:
@@ -215,23 +220,41 @@ class MoEngageBrowserService:
         logged_selector = self.ui.get("logged_in_selector")
         if login_url and login_url.lower() in self.page.url.lower():
             return "waiting_for_login", "Complete the login in the MoEngage window."
+        expected_host = urlparse(self.dashboard_url).netloc
+        current_host = urlparse(self.page.url).netloc
+        if expected_host and expected_host not in current_host:
+            return "waiting_for_login", "Complete the login in the MoEngage window."
         if logged_selector:
             try:
                 await self.page.locator(logged_selector).first.wait_for(timeout=3000)
             except Exception:
+                if self.remote_cdp_url and expected_host and current_host == expected_host:
+                    return (
+                        "connected",
+                        "MoEngage session is connected in the persistent Railway browser.",
+                    )
                 return "waiting_for_login", "The configured logged-in marker is not visible yet."
-        expected_host = urlparse(self.dashboard_url).netloc
-        if expected_host and expected_host not in urlparse(self.page.url).netloc:
-            return "waiting_for_login", "Complete the login in the MoEngage window."
         return "connected", "MoEngage session is connected and stored in the local browser profile."
 
     async def _ensure_browser(self, headless: bool = True):
         if self.page and not self.page.is_closed():
-            return
+            try:
+                await asyncio.wait_for(self.page.evaluate("1"), timeout=3.0)
+                return
+            except (PlaywrightError, asyncio.TimeoutError):
+                self.page = None
         if self.context:
             try:
-                open_pages = [page for page in self.context.pages if not page.is_closed()]
-                self.page = open_pages[0] if open_pages else await self.context.new_page()
+                for candidate in reversed(self.context.pages):
+                    if candidate.is_closed():
+                        continue
+                    try:
+                        await asyncio.wait_for(candidate.evaluate("1"), timeout=3.0)
+                        self.page = candidate
+                        return
+                    except (PlaywrightError, asyncio.TimeoutError):
+                        continue
+                self.page = await self.context.new_page()
                 return
             except Exception:
                 self.context = None
@@ -322,20 +345,29 @@ class MoEngageBrowserService:
                 for attempt in range(2):
                     try:
                         return await self._query_recorded_behavior(row, metric)
-                    except BrowserAutomationError as exc:
-                        recoverable = any(
+                    except (BrowserAutomationError, PlaywrightError) as exc:
+                        recoverable = isinstance(exc, PlaywrightError) or any(
                             text in str(exc).casefold()
                             for text in (
                                 "behavior query did not load",
                                 "redirected away from the behavior report",
+                                "target crashed",
+                                "page crashed",
                             )
                         )
                         if attempt or not recoverable:
+                            if isinstance(exc, PlaywrightError):
+                                raise BrowserAutomationError(
+                                    "The MoEngage browser tab crashed while running the query"
+                                ) from exc
                             raise
-                        # MoEngage occasionally leaves a stale/hidden SPA shell in
-                        # the DOM. A fresh navigation on the next attempt is safe
-                        # because the query builder is read-only until APPLY.
-                        await self.page.wait_for_timeout(1500)
+                        if self.remote_cdp_url:
+                            await self._replace_remote_page()
+                        else:
+                            # MoEngage occasionally leaves a stale/hidden SPA shell in
+                            # the DOM. A fresh navigation on the next attempt is safe
+                            # because the query builder is read-only until APPLY.
+                            await self.page.wait_for_timeout(1500)
             required = ["query_url", "brand_switcher", "brand_option", "campaign_type", "channel", "campaign_id", "start_date", "end_date", "metric", "run_query", "result"]
             missing = [key for key in required if not self.ui.get(key)]
             if missing:
@@ -359,6 +391,20 @@ class MoEngageBrowserService:
             except ValueError as exc:
                 raise BrowserAutomationError(f"Could not read {metric} result from {text!r}") from exc
 
+    async def _replace_remote_page(self) -> None:
+        """Create a clean tab after a Railway Chromium target crashes."""
+        self.page = None
+        if not self.context:
+            await self._ensure_browser()
+        else:
+            try:
+                self.page = await self.context.new_page()
+            except PlaywrightError:
+                self.context = None
+                self.remote_browser = None
+                await self._ensure_browser()
+        await self.page.goto(self.dashboard_url, wait_until="domcontentloaded")
+
     async def _query_recorded_behavior(self, row: CampaignRow, metric: str) -> float:
         pending = {
             str(brand).casefold()
@@ -378,13 +424,23 @@ class MoEngageBrowserService:
         try:
             await self._wait_for_behavior_report(page)
         except Exception as exc:
-            screenshot_path = self.profile_dir.parent / "moengage-query-error.png"
-            await page.screenshot(path=str(screenshot_path), full_page=True)
-            title = await page.title()
-            body = (await page.locator("body").inner_text()).replace("\n", " | ")[:600]
+            screenshot_note = "disabled for the Railway browser"
+            if not self.remote_cdp_url:
+                screenshot_path = self.profile_dir.parent / "moengage-query-error.png"
+                try:
+                    await page.screenshot(path=str(screenshot_path), full_page=False)
+                    screenshot_note = str(screenshot_path)
+                except Exception:
+                    screenshot_note = "unavailable"
+            try:
+                title = await page.title()
+                body = (await page.locator("body").inner_text()).replace("\n", " | ")[:600]
+                current_url = page.url
+            except Exception:
+                title, body, current_url = "unavailable", "unavailable", "unavailable"
             raise BrowserAutomationError(
-                f"MoEngage behavior query did not load (url={page.url!r}, title={title!r}, "
-                f"screenshot={str(screenshot_path)!r}, page={body!r})"
+                f"MoEngage behavior query did not load (url={current_url!r}, title={title!r}, "
+                f"screenshot={screenshot_note!r}, page={body!r})"
             ) from exc
 
         await self._ensure_section_open(page, "Events & filters", "Sale_Array")
