@@ -2,4 +2,4 @@
 
 # Chromium intentionally binds DevTools to loopback. Publish that loopback-only
 # socket to Railway private networking without exposing it through a public domain.
-exec socat TCP-LISTEN:9222,reuseaddr,fork TCP:127.0.0.1:9223
+exec socat TCP6-LISTEN:9222,ipv6only=0,reuseaddr,fork TCP:127.0.0.1:9223

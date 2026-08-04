@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from dataclasses import dataclass
 from datetime import date
@@ -18,6 +19,9 @@ from playwright.async_api import (
 )
 
 from app.models.report import CampaignRow
+
+
+logger = logging.getLogger(__name__)
 
 
 class BrowserAutomationError(RuntimeError):
@@ -238,6 +242,7 @@ class MoEngageBrowserService:
                     timeout=30000,
                 )
             except PlaywrightError as exc:
+                logger.exception("Could not attach to the Railway Chromium CDP endpoint")
                 raise BrowserAutomationError(
                     "The Railway login browser is starting or unavailable. Wait a moment and try again."
                 ) from exc
