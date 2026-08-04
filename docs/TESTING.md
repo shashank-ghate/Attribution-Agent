@@ -32,7 +32,7 @@ docker build -t attribution-agent:verification .
 | Frontend API | Success, JSON error, proxy error, network failure, payload construction, query encoding, endpoints |
 | Frontend UI | Healthy startup, startup failure rendering, configured-sheet auto-reconnect |
 | Supply chain | Python dependency consistency and npm vulnerability audit |
-| Deployment | Multi-stage Docker build, Railway healthcheck, restart policy, live health/session smoke checks |
+| Deployment | Multi-stage Railway builds, service-specific Dockerfiles, live health/session smoke checks |
 
 ## Production smoke test
 
@@ -54,4 +54,3 @@ MoEngage is a third-party SPA and can change its DOM, authentication challenges 
 report timing without a code deployment. Mocked failure injection validates the
 application's recovery behavior, but a controlled single-campaign smoke test remains
 required after MoEngage UI changes or browser-image updates.
-

@@ -105,9 +105,12 @@ The application talks to Chromium through Railway private networking. The browse
    active jobs.
 7. Perform a single-campaign controlled run with overwrite off before a large run.
 
-Railway configuration is tracked in `/railway.toml` for the app and
-`/RailwayBrowser/railway.toml` for Chromium. The app uses a deployment healthcheck,
-On Failure restarts, zero overlap, and a graceful shutdown window.
+The two services share one repository, so their build settings must remain
+service-specific in Railway: `Attribution-Agent` uses `/Dockerfile`, while
+`moengage-browser` uses `/RailwayBrowser/Dockerfile`. Do not add a repository-root
+`railway.toml`; Railway would apply it to both services. The browser-specific example
+is kept at `/RailwayBrowser/railway.toml`. The application performs graceful task
+cancellation during shutdown.
 
 ## Security rules
 
@@ -128,4 +131,3 @@ When reporting a failure, include:
 - Whether the Railway login-browser tab was open.
 - App and browser deployment IDs.
 - The last relevant app/browser log lines, with secrets removed.
-
