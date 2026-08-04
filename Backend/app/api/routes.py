@@ -37,6 +37,24 @@ def ensure_browser_can_switch(service: ReportService) -> None:
         )
 
 
+def ensure_no_active_job(service: ReportService) -> None:
+    active = next(
+        (
+            job for job in service.jobs.values()
+            if job.state in {JobState.QUEUED, JobState.PROCESSING}
+        ),
+        None,
+    )
+    if active:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Another automation job is already running. Wait for it to finish or cancel it "
+                f"before starting a new run (job {active.id[:8]})."
+            ),
+        )
+
+
 def job_response(job: ReportJob, include_results: bool = True) -> JobResponse:
     results = job.results[-250:] if include_results else []
     return JobResponse(
@@ -203,6 +221,7 @@ async def reset_moengage_session(
 
 @router.post("/jobs", response_model=StartJobResponse, status_code=202)
 async def start_job(payload: StartJobRequest, service: ReportService = Depends(get_report_service)):
+    ensure_no_active_job(service)
     if settings.moengage_mode == "mock" and not settings.allow_mock_writes:
         raise HTTPException(
             status_code=409,
@@ -319,6 +338,7 @@ async def cancel_job(job_id: str, service: ReportService = Depends(get_report_se
     status_code=202,
 )
 async def retry_failed_job(job_id: str, service: ReportService = Depends(get_report_service)):
+    ensure_no_active_job(service)
     try:
         job = service.retry_failed_sheet_job(job_id)
     except KeyError as exc:

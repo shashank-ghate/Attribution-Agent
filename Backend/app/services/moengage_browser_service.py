@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import parse_qs, urlparse, urlunparse
 
 import httpx
 
@@ -97,6 +97,7 @@ class MoEngageBrowserService:
         self.remote_browser: Browser | None = None
         self.context: BrowserContext | None = None
         self.page: Page | None = None
+        self.active_workspace: str | None = None
         self.lock = asyncio.Lock()
 
     async def start_login(self, login_hint: str | None = None, password: str | None = None) -> str:
@@ -329,6 +330,7 @@ class MoEngageBrowserService:
         self.page = None
         self.context = None
         self.remote_browser = None
+        self.active_workspace = None
         self.playwright = None
 
     async def query_metric(self, row: CampaignRow, metric: str) -> float:
@@ -394,6 +396,7 @@ class MoEngageBrowserService:
     async def _replace_remote_page(self) -> None:
         """Create a clean tab after a Railway Chromium target crashes."""
         self.page = None
+        self.active_workspace = None
         if not self.context:
             await self._ensure_browser()
         else:
@@ -739,9 +742,22 @@ class MoEngageBrowserService:
         target = next((value for key, value in mapping.items() if key.casefold() == brand.casefold()), None)
         if not target:
             raise BrowserAutomationError(f"No MoEngage workspace mapping configured for brand {brand!r}")
+        # Behavior URLs contain the dashboard ID belonging to their workspace.
+        # This is more reliable than a switcher label, which MoEngage hides on
+        # some report layouts, and avoids reopening the same workspace for every
+        # metric in a same-brand batch.
+        target_query_url = self._query_url_for_brand(brand)
+        current_dashboard = (parse_qs(urlparse(page.url).query).get("did") or [None])[0]
+        target_dashboard = (parse_qs(urlparse(target_query_url).query).get("did") or [None])[0]
+        if target_dashboard and current_dashboard == target_dashboard:
+            self.active_workspace = target
+            return
+        if self.active_workspace == target:
+            return
         current = page.get_by_text(target, exact=True)
         for index in range(await current.count()):
             if await current.nth(index).is_visible():
+                self.active_workspace = target
                 return
         known = sorted(set(mapping.values()), key=len, reverse=True)
         switcher = None
@@ -776,6 +792,7 @@ class MoEngageBrowserService:
             else:
                 previous_url = current_url
                 stable_checks = 0
+        self.active_workspace = target
 
     @staticmethod
     async def _ensure_section_open(page: Page, heading: str, marker: str):

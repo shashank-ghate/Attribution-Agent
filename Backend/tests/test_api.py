@@ -177,6 +177,22 @@ class MoEngageWorkflowTests(unittest.TestCase):
         with self.assertRaisesRegex(BrowserAutomationError, "configured for brand 'CK'"):
             service._query_url_for_brand("CK")
 
+    def test_workspace_switch_is_skipped_when_report_dashboard_matches_brand(self):
+        query_url = (
+            "https://dashboard-03.moengage.com/v4/analytics/v2/behavior"
+            "?did=bbw-dashboard&chartId=customers"
+        )
+        service = MoEngageBrowserService(
+            Path("profile"),
+            "https://dashboard-03.moengage.com/",
+            {
+                "query_url_map": {"BBW": query_url},
+                "workspace_map": {"BBW": "BBW_IN"},
+            },
+        )
+        asyncio.run(service._switch_workspace(SimpleNamespace(url=query_url), "BBW"))
+        self.assertEqual(service.active_workspace, "BBW_IN")
+
     def test_cis_special_filter_summary_is_recognized(self):
         summary = (
             "Txn_Channel exists AND "
@@ -590,6 +606,19 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 409)
         self.assertIn("Mock metrics are disabled", response.json()["detail"])
 
+    def test_second_job_is_rejected_while_automation_is_running(self):
+        service = get_report_service()
+        active = ReportJob(id="already-running", upload_id="sheet", filename="Master Sheet")
+        active.state = JobState.PROCESSING
+        service.jobs[active.id] = active
+        try:
+            with TestClient(app) as client:
+                response = client.post("/api/jobs", json={"sheet_connection_id": "sheet"})
+            self.assertEqual(response.status_code, 409)
+            self.assertIn("already running", response.json()["detail"])
+        finally:
+            service.jobs.pop(active.id, None)
+
     def test_invalid_google_key_is_rejected_without_installing_it(self):
         with TestClient(app) as client:
             response = client.post(
@@ -602,6 +631,7 @@ class ApiTests(unittest.TestCase):
     def test_complete_job_results_can_be_downloaded_as_csv(self):
         service = get_report_service()
         job = ReportJob(id="csv-test", upload_id="sheet", filename="Master Sheet")
+        job.state = JobState.COMPLETED
         job.results.append(RowResult(
             excel_row=22, brand="VS", channel="WhatsApp", campaign_type="Online",
             campaign_id="campaign-1", campaign_name="Campaign One",
@@ -617,6 +647,7 @@ class ApiTests(unittest.TestCase):
         self.assertIn("Unique Users - Online", response.text)
         self.assertIn("Revenue - Offline", response.text)
         self.assertIn("attachment", response.headers["content-disposition"])
+        service.jobs.pop(job.id, None)
 
 
 if __name__ == "__main__":
