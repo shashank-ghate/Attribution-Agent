@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 import socket
+import time
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -29,6 +30,10 @@ logger = logging.getLogger(__name__)
 
 class BrowserAutomationError(RuntimeError):
     pass
+
+
+class BrowserUnavailableError(BrowserAutomationError):
+    """The remote browser process/CDP endpoint is temporarily unavailable."""
 
 
 @dataclass(frozen=True)
@@ -277,8 +282,10 @@ class MoEngageBrowserService:
                 )
             except (PlaywrightError, httpx.HTTPError, OSError, ValueError) as exc:
                 logger.exception("Could not attach to the Railway Chromium CDP endpoint")
-                raise BrowserAutomationError(
-                    "The Railway login browser is starting or unavailable. Wait a moment and try again."
+                await self._clear_remote_connection()
+                raise BrowserUnavailableError(
+                    "The Railway login browser is recovering. The campaign has not been consumed; "
+                    "automation will retry when Chromium is ready."
                 ) from exc
             self.context = (
                 self.remote_browser.contexts[0]
@@ -292,6 +299,42 @@ class MoEngageBrowserService:
             launch_options["channel"] = self.ui["browser_channel"]
         self.context = await self.playwright.chromium.launch_persistent_context(str(self.profile_dir), **launch_options)
         self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
+
+    async def _clear_remote_connection(self) -> None:
+        """Discard a dead CDP transport without terminating persistent Chromium."""
+        self.page = None
+        self.context = None
+        self.remote_browser = None
+        self.active_workspace = None
+        if self.playwright:
+            try:
+                await asyncio.wait_for(self.playwright.stop(), timeout=5)
+            except Exception:
+                pass
+        self.playwright = None
+
+    async def wait_until_ready(
+        self,
+        timeout_seconds: float = 90.0,
+        retry_interval_seconds: float = 3.0,
+    ) -> None:
+        """Wait for a restarting Railway Chromium before campaign processing starts."""
+        deadline = time.monotonic() + max(timeout_seconds, 0)
+        last_error: BrowserUnavailableError | None = None
+        while True:
+            try:
+                await self._ensure_browser(headless=True)
+                return
+            except BrowserUnavailableError as exc:
+                last_error = exc
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise BrowserUnavailableError(
+                        "The Railway browser did not recover within "
+                        f"{int(timeout_seconds)} seconds. No campaign rows were processed; "
+                        "restart the browser service and retry the run."
+                    ) from last_error
+                await asyncio.sleep(min(retry_interval_seconds, remaining))
 
     async def _remote_websocket_url(self) -> str:
         """Resolve Railway private DNS and return Chromium's reachable CDP WebSocket URL."""
@@ -441,14 +484,7 @@ class MoEngageBrowserService:
         # A target crash can poison the existing CDP transport even when
         # BrowserContext.new_page() appears to succeed. Disconnect Playwright
         # and attach again to the persistent Chromium process before retrying.
-        if self.playwright:
-            try:
-                await asyncio.wait_for(self.playwright.stop(), timeout=5)
-            except Exception:
-                pass
-        self.playwright = None
-        self.context = None
-        self.remote_browser = None
+        await self._clear_remote_connection()
         await self._ensure_browser()
 
         # Never repurpose a user's visible login/dashboard tab. If reconnecting

@@ -28,6 +28,13 @@ Chromium's renderer or CDP connection stopped responding. The app closes the fai
 tab, reconnects, creates a clean automation tab and retries once. If failures repeat,
 stop the job, restart `moengage-browser`, verify login and rerun with overwrite off.
 
+## Why does it say the Railway login browser is recovering?
+
+The desktop container is reachable but Chromium or its CDP endpoint is restarting.
+Current builds supervise Chromium and wait before processing. If it cannot recover
+within 90 seconds, the job stops before creating failed row results, so the same
+selection remains safe to retry after restarting `moengage-browser`.
+
 ## Why did the login button open `about:blank`?
 
 An older frontend opened a placeholder tab while waiting for the backend to attach

@@ -26,6 +26,7 @@ from app.schemas.report_schema import StartJobRequest
 from app.services.google_sheet_service import GoogleSheetService
 from app.services.moengage_browser_service import (
     BrowserAutomationError,
+    BrowserUnavailableError,
     MoEngageBrowserService,
 )
 from app.services.report_service import ReportService
@@ -116,6 +117,135 @@ class DataIntegrityTests(unittest.TestCase):
 
 
 class RecoveryAndLifecycleTests(unittest.TestCase):
+    def test_browser_readiness_waits_through_transient_cdp_failures(self):
+        async def scenario():
+            service = MoEngageBrowserService(
+                Path("profile"),
+                "https://dashboard-03.moengage.com/",
+                {},
+                "http://browser.internal:9222",
+            )
+            service._ensure_browser = AsyncMock(side_effect=[
+                BrowserUnavailableError("starting"),
+                BrowserUnavailableError("starting"),
+                None,
+            ])
+
+            await service.wait_until_ready(
+                timeout_seconds=1,
+                retry_interval_seconds=0,
+            )
+
+            self.assertEqual(service._ensure_browser.await_count, 3)
+
+        asyncio.run(scenario())
+
+    def test_browser_readiness_timeout_explains_that_no_rows_were_processed(self):
+        async def scenario():
+            service = MoEngageBrowserService(
+                Path("profile"),
+                "https://dashboard-03.moengage.com/",
+                {},
+                "http://browser.internal:9222",
+            )
+            service._ensure_browser = AsyncMock(
+                side_effect=BrowserUnavailableError("still down")
+            )
+
+            with self.assertRaisesRegex(BrowserUnavailableError, "No campaign rows"):
+                await service.wait_until_ready(timeout_seconds=0)
+
+        asyncio.run(scenario())
+
+    def test_campaign_query_retries_after_browser_restarts(self):
+        async def scenario():
+            with tempfile.TemporaryDirectory() as folder:
+                service = ReportService(Settings(
+                    storage_dir=Path(folder),
+                    moengage_max_retries=2,
+                ))
+                row = SimpleNamespace(excel_row=2564)
+                expected = CampaignMetrics(
+                    unique_users=2,
+                    total_revenue=500,
+                    online_unique_users=2,
+                    online_revenue=500,
+                )
+                service.moengage.fetch_metrics = AsyncMock(side_effect=[
+                    BrowserUnavailableError("Chromium restarted"),
+                    expected,
+                ])
+                service.moengage.wait_until_ready = AsyncMock()
+
+                actual = await service._fetch_metrics_with_browser_recovery(row)
+
+                self.assertIs(actual, expected)
+                self.assertEqual(service.moengage.fetch_metrics.await_count, 2)
+                service.moengage.wait_until_ready.assert_awaited_once()
+
+        asyncio.run(scenario())
+
+    def test_failed_browser_preflight_does_not_consume_sheet_rows(self):
+        async def scenario():
+            with tempfile.TemporaryDirectory() as folder:
+                service = ReportService(Settings(storage_dir=Path(folder)))
+                campaigns = [
+                    CampaignRow(
+                        excel_row=row_number,
+                        campaign_date=date(2026, 8, 1),
+                        brand="Aldo",
+                        channel="SMS",
+                        campaign_type="Online",
+                        campaign_id=f"campaign-{row_number}",
+                        campaign_name=f"Campaign {row_number}",
+                        tracking_goal="1-2 Aug 2026",
+                        start_date=date(2026, 8, 1),
+                        end_date=date(2026, 8, 2),
+                    )
+                    for row_number in (2564, 2565)
+                ]
+                service.google.read_campaigns = AsyncMock(return_value=(campaigns, []))
+                service.moengage.wait_until_ready = AsyncMock(
+                    side_effect=BrowserUnavailableError("browser did not recover")
+                )
+                service.moengage.fetch_metrics = AsyncMock()
+                connection = SheetConnection(
+                    id="connection-1",
+                    spreadsheet_id="sheet-1",
+                    spreadsheet_url="https://docs.google.com/spreadsheets/d/sheet-1",
+                    spreadsheet_title="Master Sheet",
+                    worksheet_title="Mastersheet",
+                    row_count=2,
+                    brands=["Aldo"],
+                    channels=["SMS"],
+                    campaign_types=["Online"],
+                    sent_dates=[date(2026, 8, 1)],
+                    preview=[],
+                    campaigns=campaigns,
+                )
+                job = ReportJob(
+                    id="job-1", upload_id=connection.id, filename="Master Sheet"
+                )
+
+                await service._process_sheet(
+                    job,
+                    connection,
+                    overwrite=True,
+                    row_limit=None,
+                    brands=["Aldo"],
+                    channels=["SMS"],
+                    sent_date_from=date(2026, 8, 1),
+                    sent_date_to=date(2026, 8, 1),
+                )
+
+                self.assertEqual(job.state, JobState.FAILED)
+                self.assertEqual(job.total_rows, 2)
+                self.assertEqual(job.processed_rows, 0)
+                self.assertEqual(job.results, [])
+                service.moengage.fetch_metrics.assert_not_awaited()
+
+        asyncio.run(scenario())
+
     def test_final_target_crash_prepares_clean_tab_for_next_row(self):
         async def scenario():
             service = MoEngageBrowserService(

@@ -10,10 +10,18 @@ from pathlib import Path
 from fastapi import UploadFile
 
 from app.config.settings import Settings
-from app.models.report import JobState, ReportJob, RowResult, SheetConnection, UploadRecord
+from app.models.report import (
+    CampaignRow,
+    JobState,
+    ReportJob,
+    RowResult,
+    SheetConnection,
+    UploadRecord,
+)
 from app.services.excel_service import ExcelService
 from app.services.google_sheet_service import GoogleSheetService, previous_completed_week
 from app.services.moengage_service import MoEngageService
+from app.services.moengage_browser_service import BrowserUnavailableError
 
 
 logger = logging.getLogger(__name__)
@@ -175,6 +183,14 @@ class ReportService:
             if row_limit:
                 campaigns = campaigns[:row_limit]
             job.total_rows = len(campaigns)
+            requires_browser = any(
+                overwrite or not self._has_complete_existing_metrics(campaign)
+                for campaign in campaigns
+            )
+            if requires_browser:
+                # Do not create failed row results while Chromium is restarting.
+                # A failed preflight leaves the entire job safely retryable.
+                await self.moengage.wait_until_ready()
             for campaign in campaigns:
                 if job.state == JobState.CANCELLED:
                     break
@@ -197,7 +213,7 @@ class ReportService:
                     job.skipped_rows += 1
                 else:
                     try:
-                        metrics = await self.moengage.fetch_metrics(query_campaign)
+                        metrics = await self._fetch_metrics_with_browser_recovery(query_campaign)
                         await self.google.write_metrics(connection.spreadsheet_id, connection.worksheet_title, campaign, metrics)
                         result.status = "success"
                         self._copy_metrics(result, metrics)
@@ -314,6 +330,12 @@ class ReportService:
             if row_limit:
                 campaigns = campaigns[:row_limit]
             job.total_rows = len(campaigns)
+            requires_browser = any(
+                overwrite or not self._has_complete_existing_metrics(campaign)
+                for campaign in campaigns
+            )
+            if requires_browser:
+                await self.moengage.wait_until_ready()
             for campaign in campaigns:
                 if job.state == JobState.CANCELLED:
                     break
@@ -342,7 +364,7 @@ class ReportService:
                     job.skipped_rows += 1
                 else:
                     try:
-                        metrics = await self.moengage.fetch_metrics(query_campaign)
+                        metrics = await self._fetch_metrics_with_browser_recovery(query_campaign)
                         updates.append((campaign, metrics))
                         result.status = "success"
                         self._copy_metrics(result, metrics)
@@ -372,6 +394,27 @@ class ReportService:
             job.current_brand = None
             job.finished_at = datetime.now(timezone.utc)
             self.tasks.pop(job.id, None)
+
+    async def _fetch_metrics_with_browser_recovery(
+        self,
+        campaign: CampaignRow,
+    ):
+        """Retry a read-only campaign query after a transient Chromium restart."""
+        attempts = max(1, self.settings.moengage_max_retries + 1)
+        for attempt in range(attempts):
+            try:
+                return await self.moengage.fetch_metrics(campaign)
+            except BrowserUnavailableError:
+                if attempt + 1 >= attempts:
+                    raise
+                logger.warning(
+                    "Railway Chromium unavailable for row %s; waiting before attempt %s/%s",
+                    campaign.excel_row,
+                    attempt + 2,
+                    attempts,
+                )
+                await self.moengage.wait_until_ready()
+        raise AssertionError("Browser recovery loop ended unexpectedly")
 
     async def shutdown(self) -> None:
         """Cancel background work before the process disconnects from Chromium."""

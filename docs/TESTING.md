@@ -28,7 +28,7 @@ docker build -t attribution-agent:verification .
 | Metrics | Online/offline/overall AA–AF mapping, daily sums, revenue aggregation, inconsistent result rejection |
 | Sheet data | Blank required inputs, formatted INR values, invalid values, scoped warnings, batch updates |
 | Job lifecycle | Success, row failure, skip, retry failed, cancellation, shutdown cancellation, bounded history |
-| Browser recovery | Timeout, closed page, matching dashboard IDs, hidden switcher, repeated target crash, clean CDP reconnect |
+| Browser recovery | Startup wait, recovery timeout, mid-campaign restart, closed page, matching dashboard IDs, hidden switcher, repeated target crash, clean CDP reconnect, zero rows consumed on failed preflight |
 | Frontend API | Success, JSON error, proxy error, network failure, payload construction, query encoding, endpoints |
 | Frontend UI | Healthy startup, startup failure rendering, configured-sheet auto-reconnect |
 | Supply chain | Python dependency consistency and npm vulnerability audit |

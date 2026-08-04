@@ -144,6 +144,11 @@ class MoEngageService:
         )
         return self._typed_metrics(row.campaign_type, unique_users, total_revenue)
 
+    async def wait_until_ready(self, timeout_seconds: float = 90.0) -> None:
+        """Wait for the persistent browser only when browser automation is active."""
+        if self.settings.moengage_mode == "browser":
+            await self.browser.wait_until_ready(timeout_seconds=timeout_seconds)
+
     async def _browser_query_metric(self, row: CampaignRow, metric: str) -> float:
         timeout = self.settings.moengage_browser_query_timeout_seconds
         try:

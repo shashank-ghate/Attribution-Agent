@@ -73,6 +73,11 @@ The application talks to Chromium through Railway private networking. The browse
    **Verify login**.
 6. Rerun with overwrite off.
 
+The browser service must have `RESTART_APP=true`. The container watchdog then
+relaunches Chromium if the browser process exits while the desktop remains online.
+The backend waits up to 90 seconds for recovery before processing a run and does
+not consume campaign rows during that wait.
+
 ### Application is unavailable or returns 502
 
 1. Check the latest `Attribution-Agent` deployment and logs in Railway.
