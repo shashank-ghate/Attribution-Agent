@@ -51,6 +51,8 @@ The application talks to Chromium through Railway private networking. The browse
 - **Stop run** cancels the underlying task and marks the in-progress row retryable.
 - **Retry failed** is appropriate when the original run reached a terminal state
   and only its failed rows should run again.
+- Before either a new run or **Retry failed**, click **Verify login**. Both actions
+  are blocked when the saved MoEngage session is expired.
 - After a deployment or app restart, job history is intentionally empty. Reconnect
   the sheet and run the same filters with overwrite off. Existing complete rows
   will be skipped and remaining rows will run.
@@ -98,6 +100,8 @@ not consume campaign rows during that wait.
 3. Complete Google/MoEngage login and MFA inside that browser only.
 4. Return to Attribution Desk and click **Verify login**.
 5. Close the login-browser tab before running campaigns.
+6. Rerun the same filters with overwrite off. If login expires during a batch, the
+   backend stops after the current row and leaves the remaining rows untouched.
 
 ## Deployment procedure
 

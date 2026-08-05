@@ -19,7 +19,10 @@ import httpx
 
 from app.config.settings import Settings
 from app.models.report import CampaignMetrics, CampaignRow
-from app.services.moengage_browser_service import MoEngageBrowserService
+from app.services.moengage_browser_service import (
+    BrowserAuthenticationError,
+    MoEngageBrowserService,
+)
 
 
 class MoEngageError(RuntimeError):
@@ -148,6 +151,18 @@ class MoEngageService:
         """Wait for the persistent browser only when browser automation is active."""
         if self.settings.moengage_mode == "browser":
             await self.browser.wait_until_ready(timeout_seconds=timeout_seconds)
+
+    async def ensure_authenticated(self, timeout_seconds: float = 90.0) -> None:
+        """Require both a reachable browser and a valid MoEngage session."""
+        if self.settings.moengage_mode != "browser":
+            return
+        await self.browser.wait_until_ready(timeout_seconds=timeout_seconds)
+        status, message = await self.browser.status()
+        if status != "connected":
+            raise BrowserAuthenticationError(
+                f"{message} No campaign rows were processed. Open the login browser, "
+                "complete login, click Verify login, and start the run again."
+            )
 
     async def _browser_query_metric(self, row: CampaignRow, metric: str) -> float:
         timeout = self.settings.moengage_browser_query_timeout_seconds

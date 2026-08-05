@@ -24,6 +24,7 @@ from app.schemas.report_schema import (
     StartJobResponse,
 )
 from app.services.report_service import ReportService
+from app.services.moengage_browser_service import BrowserAutomationError
 
 
 router = APIRouter()
@@ -242,9 +243,10 @@ async def start_job(payload: StartJobRequest, service: ReportService = Depends(g
                 detail="Missing MoEngage API configuration for: " + ", ".join(missing),
             )
     if settings.moengage_mode == "browser":
-        browser_status, browser_message = await service.moengage.browser.status()
-        if browser_status != "connected":
-            raise HTTPException(status_code=409, detail=browser_message)
+        try:
+            await service.moengage.ensure_authenticated()
+        except BrowserAutomationError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
     try:
         if payload.sheet_connection_id:
             job = service.create_sheet_job(
@@ -339,6 +341,11 @@ async def cancel_job(job_id: str, service: ReportService = Depends(get_report_se
 )
 async def retry_failed_job(job_id: str, service: ReportService = Depends(get_report_service)):
     ensure_no_active_job(service)
+    if settings.moengage_mode == "browser":
+        try:
+            await service.moengage.ensure_authenticated()
+        except BrowserAutomationError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
     try:
         job = service.retry_failed_sheet_job(job_id)
     except KeyError as exc:

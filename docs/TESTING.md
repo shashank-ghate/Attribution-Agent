@@ -27,7 +27,7 @@ docker build -t attribution-agent:verification .
 | Date integrity | Cross-month ranges, typo normalization, ordinals, invalid nonblank range rejection |
 | Metrics | Online/offline/overall AA–AF mapping, daily sums, revenue aggregation, inconsistent result rejection |
 | Sheet data | Blank required inputs, formatted INR values, invalid values, scoped warnings, batch updates |
-| Job lifecycle | Success, row failure, skip, retry failed, cancellation, shutdown cancellation, bounded history |
+| Job lifecycle | Success, row failure, skip, retry failed, authentication-expiry abort, cancellation, shutdown cancellation, bounded history |
 | Browser recovery | Startup wait, recovery timeout, mid-campaign restart, closed page, matching dashboard IDs, hidden switcher, repeated target crash, clean CDP reconnect, zero rows consumed on failed preflight |
 | Frontend API | Success, JSON error, proxy error, network failure, payload construction, query encoding, endpoints |
 | Frontend UI | Healthy startup, startup failure rendering, configured-sheet auto-reconnect |

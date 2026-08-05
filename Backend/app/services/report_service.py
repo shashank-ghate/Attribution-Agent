@@ -21,7 +21,10 @@ from app.models.report import (
 from app.services.excel_service import ExcelService
 from app.services.google_sheet_service import GoogleSheetService, previous_completed_week
 from app.services.moengage_service import MoEngageService
-from app.services.moengage_browser_service import BrowserUnavailableError
+from app.services.moengage_browser_service import (
+    BrowserAuthenticationError,
+    BrowserUnavailableError,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -190,7 +193,7 @@ class ReportService:
             if requires_browser:
                 # Do not create failed row results while Chromium is restarting.
                 # A failed preflight leaves the entire job safely retryable.
-                await self.moengage.wait_until_ready()
+                await self.moengage.ensure_authenticated()
             for campaign in campaigns:
                 if job.state == JobState.CANCELLED:
                     break
@@ -207,6 +210,7 @@ class ReportService:
                     date_range=f"{campaign.start_date.isoformat()} → {campaign.end_date.isoformat()}", status="processing",
                 )
                 job.results.append(result)
+                authentication_expired = False
                 if not overwrite and self._has_complete_existing_metrics(campaign):
                     result.status, result.message = "skipped", "Existing Google Sheet values preserved"
                     self._copy_existing_metrics(result, campaign)
@@ -218,6 +222,21 @@ class ReportService:
                         result.status = "success"
                         self._copy_metrics(result, metrics)
                         job.successful_rows += 1
+                    except BrowserAuthenticationError as exc:
+                        result.status, result.message = "failed", str(exc)
+                        job.failed_rows += 1
+                        job.state = JobState.FAILED
+                        job.error = (
+                            "MoEngage login expired. Automation stopped immediately; "
+                            "remaining campaigns were not processed. Complete login and rerun "
+                            "the same filters with overwrite disabled."
+                        )
+                        authentication_expired = True
+                        logger.warning(
+                            "MoEngage login expired at sheet row %s; stopping job %s",
+                            campaign.excel_row,
+                            job.id,
+                        )
                     except Exception as exc:
                         result.status, result.message = "failed", str(exc)
                         job.failed_rows += 1
@@ -227,7 +246,9 @@ class ReportService:
                             campaign.brand,
                         )
                 job.processed_rows += 1
-            if job.state != JobState.CANCELLED:
+                if authentication_expired:
+                    break
+            if job.state not in {JobState.CANCELLED, JobState.FAILED}:
                 job.state = JobState.COMPLETED
         except Exception as exc:
             job.state, job.error = JobState.FAILED, str(exc)
@@ -335,7 +356,7 @@ class ReportService:
                 for campaign in campaigns
             )
             if requires_browser:
-                await self.moengage.wait_until_ready()
+                await self.moengage.ensure_authenticated()
             for campaign in campaigns:
                 if job.state == JobState.CANCELLED:
                     break
@@ -357,6 +378,7 @@ class ReportService:
                     status="processing",
                 )
                 job.results.append(result)
+                authentication_expired = False
                 if not overwrite and self._has_complete_existing_metrics(campaign):
                     result.status = "skipped"
                     self._copy_existing_metrics(result, campaign)
@@ -369,6 +391,21 @@ class ReportService:
                         result.status = "success"
                         self._copy_metrics(result, metrics)
                         job.successful_rows += 1
+                    except BrowserAuthenticationError as exc:
+                        result.status, result.message = "failed", str(exc)
+                        job.failed_rows += 1
+                        job.state = JobState.FAILED
+                        job.error = (
+                            "MoEngage login expired. Automation stopped immediately; "
+                            "remaining campaigns were not processed. Complete login and rerun "
+                            "the same filters with overwrite disabled."
+                        )
+                        authentication_expired = True
+                        logger.warning(
+                            "MoEngage login expired at uploaded row %s; stopping job %s",
+                            campaign.excel_row,
+                            job.id,
+                        )
                     except Exception as exc:
                         result.status = "failed"
                         result.message = str(exc)
@@ -379,11 +416,13 @@ class ReportService:
                             campaign.brand,
                         )
                 job.processed_rows += 1
+                if authentication_expired:
+                    break
 
             output = self.settings.storage_dir / "outputs" / f"{job.id}_updated.xlsx"
             await asyncio.to_thread(self.excel.write_metrics, upload.path, output, updates)
             job.output_path = output
-            if job.state != JobState.CANCELLED:
+            if job.state not in {JobState.CANCELLED, JobState.FAILED}:
                 job.state = JobState.COMPLETED
         except Exception as exc:
             job.state = JobState.FAILED

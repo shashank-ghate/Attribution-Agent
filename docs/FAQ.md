@@ -22,6 +22,13 @@ task, not only the status label.
 Changing the browser page while the job is entering filters would corrupt the query.
 The login controls are locked until the current job finishes or is cancelled.
 
+## Why did every row say “Complete the login in the MoEngage window”?
+
+The saved MoEngage session expired and an older build continued treating the login
+redirect as a normal row failure. Current builds block both Start and Retry when
+login is missing. If authentication expires mid-run, processing stops after the
+current row instead of failing the rest of the selection.
+
 ## What does “browser tab crashed” mean?
 
 Chromium's renderer or CDP connection stopped responding. The app closes the failed

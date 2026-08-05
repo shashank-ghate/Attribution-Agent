@@ -36,6 +36,10 @@ class BrowserUnavailableError(BrowserAutomationError):
     """The remote browser process/CDP endpoint is temporarily unavailable."""
 
 
+class BrowserAuthenticationError(BrowserAutomationError):
+    """The persistent browser is reachable but its MoEngage login is invalid."""
+
+
 @dataclass(frozen=True)
 class BehaviorQueryPlan:
     transaction_operator: str
@@ -401,6 +405,8 @@ class MoEngageBrowserService:
                 await self.page.goto(self.dashboard_url, wait_until="domcontentloaded")
             state, message = await self.status()
             if state != "connected":
+                if state == "waiting_for_login":
+                    raise BrowserAuthenticationError(message)
                 raise BrowserAutomationError(message)
             if self.ui.get("workflow") == "recorded_behavior":
                 for attempt in range(2):

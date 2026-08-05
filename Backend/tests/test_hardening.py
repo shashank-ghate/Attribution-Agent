@@ -25,6 +25,7 @@ from app.models.report import (
 from app.schemas.report_schema import StartJobRequest
 from app.services.google_sheet_service import GoogleSheetService
 from app.services.moengage_browser_service import (
+    BrowserAuthenticationError,
     BrowserAutomationError,
     BrowserUnavailableError,
     MoEngageBrowserService,
@@ -205,7 +206,7 @@ class RecoveryAndLifecycleTests(unittest.TestCase):
                     for row_number in (2564, 2565)
                 ]
                 service.google.read_campaigns = AsyncMock(return_value=(campaigns, []))
-                service.moengage.wait_until_ready = AsyncMock(
+                service.moengage.ensure_authenticated = AsyncMock(
                     side_effect=BrowserUnavailableError("browser did not recover")
                 )
                 service.moengage.fetch_metrics = AsyncMock()
@@ -243,6 +244,71 @@ class RecoveryAndLifecycleTests(unittest.TestCase):
                 self.assertEqual(job.processed_rows, 0)
                 self.assertEqual(job.results, [])
                 service.moengage.fetch_metrics.assert_not_awaited()
+
+        asyncio.run(scenario())
+
+    def test_expired_login_stops_batch_after_current_row(self):
+        async def scenario():
+            with tempfile.TemporaryDirectory() as folder:
+                service = ReportService(Settings(storage_dir=Path(folder)))
+                campaigns = [
+                    CampaignRow(
+                        excel_row=row_number,
+                        campaign_date=date(2026, 8, 1),
+                        brand="Crocs",
+                        channel="SMS",
+                        campaign_type="Offline",
+                        campaign_id=f"campaign-{row_number}",
+                        campaign_name=f"Campaign {row_number}",
+                        tracking_goal="1 Aug 2026",
+                        start_date=date(2026, 8, 1),
+                        end_date=date(2026, 8, 1),
+                    )
+                    for row_number in (2339, 2340, 2341)
+                ]
+                service.google.read_campaigns = AsyncMock(return_value=(campaigns, []))
+                service.moengage.ensure_authenticated = AsyncMock()
+                service.moengage.fetch_metrics = AsyncMock(
+                    side_effect=BrowserAuthenticationError(
+                        "Complete the login in the MoEngage window."
+                    )
+                )
+                service.google.write_metrics = AsyncMock()
+                connection = SheetConnection(
+                    id="connection-1",
+                    spreadsheet_id="sheet-1",
+                    spreadsheet_url="https://docs.google.com/spreadsheets/d/sheet-1",
+                    spreadsheet_title="Master Sheet",
+                    worksheet_title="Mastersheet",
+                    row_count=3,
+                    brands=["Crocs"],
+                    channels=["SMS"],
+                    campaign_types=["Offline"],
+                    sent_dates=[date(2026, 8, 1)],
+                    preview=[],
+                    campaigns=campaigns,
+                )
+                job = ReportJob(
+                    id="job-auth", upload_id=connection.id, filename="Master Sheet"
+                )
+
+                await service._process_sheet(
+                    job,
+                    connection,
+                    overwrite=True,
+                    row_limit=None,
+                    brands=["Crocs"],
+                    channels=["SMS"],
+                    sent_date=date(2026, 8, 1),
+                )
+
+                self.assertEqual(job.state, JobState.FAILED)
+                self.assertEqual(job.processed_rows, 1)
+                self.assertEqual(job.failed_rows, 1)
+                self.assertEqual(len(job.results), 1)
+                self.assertIn("login expired", job.error)
+                self.assertEqual(service.moengage.fetch_metrics.await_count, 1)
+                service.google.write_metrics.assert_not_awaited()
 
         asyncio.run(scenario())
 
@@ -297,6 +363,7 @@ class RecoveryAndLifecycleTests(unittest.TestCase):
                     return_value=(campaigns, [])
                 )
                 service.google.write_metrics = AsyncMock()
+                service.moengage.ensure_authenticated = AsyncMock()
                 service.moengage.fetch_metrics = AsyncMock(side_effect=[
                     RuntimeError("MoEngage temporary failure"),
                     CampaignMetrics(
@@ -464,9 +531,9 @@ class ApiFailureBoundaryTests(unittest.TestCase):
 
     def test_disconnected_browser_blocks_a_valid_job_before_creation(self):
         service = get_report_service()
-        original_status = service.moengage.browser.status
-        service.moengage.browser.status = AsyncMock(
-            return_value=("disconnected", "Complete MoEngage login")
+        original_check = service.moengage.ensure_authenticated
+        service.moengage.ensure_authenticated = AsyncMock(
+            side_effect=BrowserAuthenticationError("Complete MoEngage login")
         )
         try:
             with TestClient(app) as client:
@@ -480,7 +547,21 @@ class ApiFailureBoundaryTests(unittest.TestCase):
             self.assertEqual(response.status_code, 409)
             self.assertIn("Complete MoEngage login", response.json()["detail"])
         finally:
-            service.moengage.browser.status = original_status
+            service.moengage.ensure_authenticated = original_check
+
+    def test_disconnected_browser_blocks_retry_before_job_lookup(self):
+        service = get_report_service()
+        original_check = service.moengage.ensure_authenticated
+        service.moengage.ensure_authenticated = AsyncMock(
+            side_effect=BrowserAuthenticationError("Complete MoEngage login")
+        )
+        try:
+            with TestClient(app) as client:
+                response = client.post("/api/jobs/missing/retry-failed")
+            self.assertEqual(response.status_code, 409)
+            self.assertIn("Complete MoEngage login", response.json()["detail"])
+        finally:
+            service.moengage.ensure_authenticated = original_check
 
 
 if __name__ == "__main__":
